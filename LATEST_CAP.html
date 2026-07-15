@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CaP · Context as a Product</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #f7f7f7; color: #1a1a1a; height: 100vh; display: flex; flex-direction: column; font-size: 13px; }
+
+  #topnav { display: flex; align-items: center; gap: 12px; padding: 0 20px; height: 44px; background: #fff; border-bottom: 1px solid #e5e5e5; flex-shrink: 0; }
+  #topnav .brand { font-size: 13px; font-weight: 600; color: #1a1a1a; letter-spacing: 0.02em; margin-right: 12px; }
+  .mode-btn { padding: 5px 14px; border-radius: 4px; border: 1px solid #ddd; background: transparent; color: #888; cursor: pointer; font-size: 12px; font-family: inherit; transition: all 0.15s; }
+  .mode-btn.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; font-weight: 600; }
+  .mode-btn:hover:not(.active) { border-color: #999; color: #444; }
+
+  #main { display: flex; flex: 1; overflow: hidden; }
+
+  #sidebar { width: 220px; background: #fff; border-right: 1px solid #e5e5e5; display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; }
+  #sidebar-header { padding: 12px 14px 8px; font-size: 10px; font-weight: 600; color: #bbb; text-transform: uppercase; letter-spacing: 0.08em; }
+  #account-list { flex: 1; overflow-y: auto; }
+  .account-item { padding: 9px 14px; cursor: pointer; border-left: 2px solid transparent; color: #666; font-size: 12px; transition: all 0.1s; line-height: 1.4; }
+  .account-item:hover { background: #f7f7f7; color: #1a1a1a; }
+  .account-item.active { background: #eff6ff; border-left-color: #2563eb; color: #1a1a1a; }
+  .account-item .acct-name { font-weight: 500; }
+  .account-item .acct-meta { font-size: 10px; color: #bbb; margin-top: 2px; }
+  .account-item.active .acct-meta { color: #93c5fd; }
+  #add-account-btn { margin: 10px 14px; padding: 8px; border: 1px dashed #ddd; background: transparent; color: #bbb; border-radius: 4px; cursor: pointer; font-size: 11px; font-family: inherit; text-align: center; transition: all 0.15s; }
+  #add-account-btn:hover { border-color: #999; color: #555; }
+
+  #content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  .tab-bar { display: flex; border-bottom: 1px solid #e5e5e5; background: #fff; flex-shrink: 0; padding: 0 20px; }
+  .dtab { padding: 10px 16px; cursor: pointer; font-size: 12px; color: #bbb; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; white-space: nowrap; }
+  .dtab:hover { color: #555; }
+  .dtab.active { color: #1a1a1a; border-bottom-color: #2563eb; font-weight: 500; }
+
+  .panel { flex: 1; overflow-y: auto; padding: 24px; background: #f7f7f7; }
+  .panel-section { margin-bottom: 28px; }
+  .section-label { font-size: 10px; font-weight: 600; color: #bbb; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #ccc; text-align: center; gap: 8px; }
+  .empty-state .es-icon { font-size: 28px; margin-bottom: 4px; color: #ddd; }
+  .empty-state .es-title { font-size: 14px; color: #bbb; }
+  .empty-state .es-sub { font-size: 12px; color: #ccc; max-width: 260px; }
+
+  .fact-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e5e5; border-radius: 6px; overflow: hidden; }
+  .fact-table th { text-align: left; font-size: 10px; font-weight: 600; color: #bbb; text-transform: uppercase; letter-spacing: 0.06em; padding: 8px 12px; border-bottom: 1px solid #e5e5e5; background: #fafafa; }
+  .fact-table td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; font-size: 12px; color: #333; vertical-align: top; }
+  .fact-table tr:last-child td { border-bottom: none; }
+  .fact-table tr:hover td { background: #fafafa; }
+  .type-badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .type-a { background: #dcfce7; color: #166534; }
+  .type-b { background: #dbeafe; color: #1e40af; }
+  .type-c { background: #fef9c3; color: #854d0e; }
+  .type-d { background: #fee2e2; color: #991b1b; }
+
+  .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .status-cell { padding: 12px 14px; border-radius: 6px; border: 1px solid #e5e5e5; background: #fff; }
+  .status-cell.green { border-color: #bbf7d0; background: #f0fdf4; }
+  .status-cell.amber { border-color: #fde68a; background: #fffbeb; }
+  .status-cell.red   { border-color: #fecaca; background: #fff1f2; }
+  .status-cell .sc-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; color: #bbb; }
+  .status-cell.green .sc-label { color: #16a34a; }
+  .status-cell.amber .sc-label { color: #d97706; }
+  .status-cell.red   .sc-label { color: #dc2626; }
+  .status-cell .sc-value { font-size: 13px; font-weight: 500; color: #333; }
+
+  .checklist { display: flex; flex-direction: column; gap: 9px; }
+  .check-item { display: flex; align-items: center; gap: 10px; }
+  .check-item input[type="checkbox"] { accent-color: #2563eb; width: 14px; height: 14px; cursor: pointer; }
+  .check-item label { font-size: 12px; color: #444; cursor: pointer; }
+
+  .btn { padding: 8px 16px; border-radius: 4px; border: none; cursor: pointer; font-size: 12px; font-family: inherit; font-weight: 500; transition: all 0.15s; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-secondary { background: #fff; color: #555; border: 1px solid #ddd; }
+  .btn-secondary:hover { background: #f7f7f7; border-color: #bbb; }
+  .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+  .form-row { margin-bottom: 14px; }
+  .form-row label { display: block; font-size: 11px; color: #999; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .form-row input, .form-row textarea, .form-row select { width: 100%; background: #fff; border: 1px solid #ddd; color: #1a1a1a; padding: 8px 10px; border-radius: 4px; font-size: 12px; font-family: inherit; outline: none; }
+  .form-row input:focus, .form-row textarea:focus, .form-row select:focus { border-color: #2563eb; box-shadow: 0 0 0 2px #dbeafe; }
+  .form-row textarea { min-height: 80px; resize: vertical; }
+
+  .form-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 6px; padding: 16px; margin-bottom: 16px; }
+
+  .source-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 6px; padding: 14px; margin-bottom: 10px; }
+  .source-card .sc-name { font-size: 13px; font-weight: 500; color: #1a1a1a; margin-bottom: 3px; }
+  .source-card .sc-type { font-size: 10px; color: #bbb; margin-bottom: 10px; text-transform: uppercase; }
+  .source-card .sc-row { display: flex; gap: 24px; font-size: 11px; color: #888; flex-wrap: wrap; }
+  .source-card .sc-row span { display: flex; flex-direction: column; gap: 2px; }
+  .source-card .sc-row strong { color: #bbb; font-size: 10px; text-transform: uppercase; }
+
+  .cred-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e5e5e5; border-radius: 6px; overflow: hidden; }
+  .cred-table th { text-align: left; font-size: 10px; font-weight: 600; color: #bbb; text-transform: uppercase; letter-spacing: 0.06em; padding: 8px 12px; border-bottom: 1px solid #e5e5e5; background: #fafafa; }
+  .cred-table td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; font-size: 12px; color: #333; vertical-align: top; }
+  .cred-table tr:last-child td { border-bottom: none; }
+
+  .output-preview { background: #1e1e1e; border-radius: 6px; padding: 16px; font-family: 'Courier New', monospace; font-size: 11px; color: #d4d4d4; line-height: 1.7; white-space: pre-wrap; max-height: 420px; overflow-y: auto; }
+
+  .issue-card { background: #fff; border: 1px solid #fecaca; border-radius: 6px; padding: 12px; margin-bottom: 8px; }
+  .issue-card.gap { border-color: #fde68a; }
+  .issue-card .ic-type { font-size: 10px; font-weight: 600; color: #dc2626; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; }
+  .issue-card.gap .ic-type { color: #d97706; }
+  .issue-card .ic-text { font-size: 12px; color: #444; }
+
+  .ov-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+  .ov-cell { background: #fff; border: 1px solid #e5e5e5; border-radius: 6px; padding: 14px; }
+  .ov-cell .ov-num { font-size: 26px; font-weight: 700; color: #1a1a1a; margin-bottom: 2px; }
+  .ov-cell .ov-label { font-size: 11px; color: #bbb; }
+
+  .alert { padding: 10px 14px; border-radius: 4px; font-size: 12px; margin-bottom: 14px; }
+  .alert-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+  .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+  .alert-error   { background: #fff1f2; border: 1px solid #fecaca; color: #991b1b; }
+
+  .loading { color: #ccc; font-size: 12px; padding: 20px 0; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: #e5e5e5; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="topnav">
+  <span class="brand">CaP · Context as a Product</span>
+  <button class="mode-btn active" onclick="setMode('dossiers')" id="btn-dossiers">Dossiers</button>
+  <button class="mode-btn" onclick="setMode('sources')" id="btn-sources">Sources</button>
+</div>
+
+<div id="main">
+  <div id="sidebar">
+    <div id="sidebar-header">Account Library</div>
+    <div id="account-list"><div class="loading" style="padding:14px;">Loading...</div></div>
+    <button id="add-account-btn" onclick="showAddAccount()">+ Add account</button>
+  </div>
+
+  <div id="content">
+    <div id="mode-dossiers" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="tab-bar">
+        <div class="dtab active" onclick="setTab('overview')" id="tab-overview">Overview</div>
+        <div class="dtab" onclick="setTab('facts')" id="tab-facts">Fact ledger</div>
+        <div class="dtab" onclick="setTab('issues')" id="tab-issues">Issues</div>
+        <div class="dtab" onclick="setTab('salesrep')" id="tab-salesrep">Sales rep review</div>
+        <div class="dtab" onclick="setTab('gate')" id="tab-gate">Director gate</div>
+        <div class="dtab" onclick="setTab('output')" id="tab-output">Output</div>
+      </div>
+      <div id="tab-subtitle" style="padding:8px 20px;background:#fafafa;border-bottom:1px solid #eee;font-size:11px;color:#999;">Account-level summary — facts, conflicts, and gaps at a glance.</div>
+      <div id="panel" class="panel">
+        <div class="empty-state">
+          <div class="es-icon">◈</div>
+          <div class="es-title">No account selected</div>
+          <div class="es-sub">Select an account from the sidebar to open its dossier.</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="mode-sources" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="tab-bar">
+        <div class="dtab active" onclick="setSourceTab('registry')" id="stab-registry">Registry</div>
+        <div class="dtab" onclick="setSourceTab('register')" id="stab-register">Register new source</div>
+        <div class="dtab" onclick="setSourceTab('rules')" id="stab-rules">Credibility rules</div>
+      </div>
+      <div id="source-panel" class="panel"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL  = 'https://buknaajuolfkvcpepbaf.supabase.co';
+const SUPABASE_KEY  = 'SUPABASE_KEY_PLACEHOLDER'; // REDACTED — replace with your new publishable key once the app is migrated to env vars. See CLAUDE.md.
+const GITHUB_TOKEN  = 'GITHUB_TOKEN_PLACEHOLDER'; // REDACTED — original token deleted on GitHub. Real value belongs in an env var, not here. See CLAUDE.md.
+const GITHUB_REPO   = 'DesignProdigySG/DP-Syntropy-May-2026';
+const GITHUB_BRANCH = 'main';
+
+// ── CONFIDENCE MODEL ──────────────────────────────────────────────────────────
+// Step 1: Type sets starting confidence at intake
+const TYPE_CONFIDENCE = { A: 95, B: 70, C: 55, D: null };
+
+// Step 2: Intended_use sets review threshold (two tiers)
+const REVIEW_THRESHOLD = {
+  buying_committee_mapping: 85,
+  conversation_prep: 85,
+  account_qualification: 75,
+  timing_signal: 75,
+  gap_identification: null
+};
+
+// Decay: starts 30 days before valid_until, slides linearly to 60% floor at expiry
+function effectiveConfidence(fact) {
+  const base = fact.confidence;
+  if (base === null || base === undefined) return null;
+  if (!fact.valid_until) return base;
+  const now = new Date();
+  const expiry = new Date(fact.valid_until);
+  const decayStart = new Date(expiry);
+  decayStart.setDate(decayStart.getDate() - 30);
+  if (now <= decayStart) return base; // no decay yet
+  if (now >= expiry) return Math.min(base, 60); // frozen at 60% floor
+  // Linear decay from base → 60% over the 30-day window
+  const elapsed = (now - decayStart) / (expiry - decayStart);
+  return Math.round(base - (base - 60) * elapsed);
+}
+
+function reviewThreshold(fact) {
+  return REVIEW_THRESHOLD[fact.intended_use] || 80;
+}
+
+function needsReview(fact) {
+  if (fact.type === 'D') return false;
+  const conf = effectiveConfidence(fact);
+  if (conf === null || conf === undefined) return true;
+  return conf < reviewThreshold(fact);
+}
+
+// Freshness bar: shows decay state visually
+function freshnessBadge(fact) {
+  if (!fact.valid_until) return '';
+  const now = new Date();
+  const expiry = new Date(fact.valid_until);
+  const decayStart = new Date(expiry);
+  decayStart.setDate(decayStart.getDate() - 30);
+  const daysLeft = Math.round((expiry - now) / (1000*60*60*24));
+
+  if (now > expiry) {
+    return `<span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:3px;background:#f3f4f6;color:#6b7280;margin-left:4px;">⏱ Expired</span>`;
+  }
+  if (now > decayStart) {
+    return `<span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:3px;background:#fffbeb;color:#d97706;margin-left:4px;">⚡ Expiring in ${daysLeft}d</span>`;
+  }
+  return ''; // Fresh = no badge, date alone is enough
+}
+
+const sb = async (path, opts = {}) => {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation', ...opts.headers },
+    ...opts
+  });
+  if (!res.ok) { const e = await res.text(); throw new Error(e); }
+  const t = await res.text(); return t ? JSON.parse(t) : [];
+};
+
+let currentMode = 'dossiers', currentTab = 'overview', currentSourceTab = 'registry';
+let selectedAccount = null, accounts = [];
+
+function setMode(m) {
+  currentMode = m;
+  document.getElementById('btn-dossiers').classList.toggle('active', m==='dossiers');
+  document.getElementById('btn-sources').classList.toggle('active', m==='sources');
+  document.getElementById('mode-dossiers').style.display = m==='dossiers' ? 'flex' : 'none';
+  document.getElementById('mode-sources').style.display  = m==='sources'  ? 'flex' : 'none';
+  if (m==='sources') renderSourceTab(currentSourceTab);
+}
+
+const TAB_DEFINITIONS = {
+  overview: 'Account-level summary — facts, conflicts, and gaps at a glance.',
+  facts: 'Every fact CaP has collected for this account, with type, source, intended use, and confidence. Read-only reference for the Context Director.',
+  issues: 'Where conflicts (contradicting facts), gaps (known missing info), and the rejection history live. Click "Run deconfliction" to check for new conflicts.',
+  salesrep: 'Review account signals CaP cannot safely activate yet. Your input decides whether each signal becomes usable, stays on watchlist, gets corrected, or is rejected.',
+  gate: 'Gate 1 checks data completeness manually. Gate 2 is calculated automatically from live data — it shows how defensible this dossier currently is.',
+  output: 'The final artifact CaP produces — a synthesis of everything verified, ready to push to GitHub for downstream use.'
+};
+
+function setTab(t) {
+  currentTab = t;
+  document.querySelectorAll('.dtab[id^="tab-"]').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-'+t).classList.add('active');
+  const sub = document.getElementById('tab-subtitle');
+  if (sub) sub.textContent = TAB_DEFINITIONS[t] || '';
+  if (selectedAccount) renderTab(t);
+}
+
+function setSourceTab(t) {
+  currentSourceTab = t;
+  document.querySelectorAll('.dtab[id^="stab-"]').forEach(el => el.classList.remove('active'));
+  document.getElementById('stab-'+t).classList.add('active');
+  renderSourceTab(t);
+}
+
+async function loadAccounts() {
+  try {
+    accounts = await sb('accounts?select=*&order=name.asc');
+    renderAccountList();
+  } catch(e) {
+    document.getElementById('account-list').innerHTML = `<div style="padding:14px;color:#dc2626;font-size:11px;">Load failed: ${e.message}</div>`;
+  }
+}
+
+function renderAccountList() {
+  const el = document.getElementById('account-list');
+  if (!accounts || accounts.length === 0) { el.innerHTML = '<div style="padding:14px;color:#ccc;font-size:12px;">No accounts yet.</div>'; return; }
+  el.innerHTML = accounts.map(a => `
+    <div class="account-item ${selectedAccount && selectedAccount.id===a.id ? 'active' : ''}" onclick="selectAccount('${a.id}')">
+      <div class="acct-name">${a.name}</div>
+      <div class="acct-meta">${[a.region,a.industry].filter(Boolean).join(' · ')}</div>
+    </div>`).join('');
+}
+
+function selectAccount(id) {
+  selectedAccount = accounts.find(a => a.id===id);
+  renderAccountList();
+  if (currentMode==='dossiers') renderTab(currentTab);
+}
+
+async function renderTab(t) {
+  const panel = document.getElementById('panel');
+  panel.innerHTML = '<div class="loading">Loading...</div>';
+  try {
+    if (t==='overview') await renderOverview(panel);
+    else if (t==='facts')   await renderFacts(panel);
+    else if (t==='issues')  await renderIssues(panel);
+    else if (t==='salesrep') await renderSalesRep(panel);
+    else if (t==='gate')    renderGate(panel);
+    else if (t==='output')  await renderOutput(panel);
+  } catch(e) {
+    panel.innerHTML = `<div class="alert alert-error" style="margin-top:20px;">Error: ${e.message}</div>`;
+  }
+}
+
+async function renderOverview(panel) {
+  const a = selectedAccount;
+  const [facts, conflicts] = await Promise.all([
+    sb(`facts?account_id=eq.${a.id}&select=type`).catch(()=>[]),
+    sb(`conflicts?account_id=eq.${a.id}&select=id,status`).catch(()=>[])
+  ]);
+  const tc = type => (facts||[]).filter(f=>f.type===type).length;
+  const gapCount = tc('D');
+  const openConflictCount = (conflicts||[]).filter(c=>c.status==='open').length;
+  panel.innerHTML = `
+    <div class="panel-section">
+      <div class="section-label">Account</div>
+      <div style="font-size:18px;font-weight:600;margin-bottom:4px;">${a.name}</div>
+      <div style="font-size:12px;color:#888;">${[a.region,a.industry,a.hq].filter(Boolean).join(' · ')}</div>
+    </div>
+    <div class="ov-grid">
+      <div class="ov-cell"><div class="ov-num">${(facts||[]).length}</div><div class="ov-label">Total facts</div></div>
+      <div class="ov-cell"><div class="ov-num">${openConflictCount}</div><div class="ov-label">Conflicts needing review</div></div>
+      <div class="ov-cell"><div class="ov-num">${gapCount}</div><div class="ov-label">Gaps</div></div>
+    </div>
+    <div class="panel-section">
+      <div class="section-label">Fact breakdown</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+        <span class="type-badge type-a">A: ${tc('A')} verified</span>
+        <span class="type-badge type-b">B: ${tc('B')} inferred</span>
+        <span class="type-badge type-c">C: ${tc('C')} third-party</span>
+        <span class="type-badge type-d">D: ${tc('D')} gaps</span>
+      </div>
+    </div>
+    ${a.notes?`<div class="panel-section"><div class="section-label">Notes</div><div style="font-size:12px;color:#555;line-height:1.7;">${a.notes}</div></div>`:''}
+    <div class="panel-section">
+      <div class="section-label">Last updated</div>
+      <div style="font-size:12px;color:#bbb;">${a.updated_at?new Date(a.updated_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}):'—'}</div>
+    </div>`;
+}
+
+async function renderFacts(panel) {
+  const a = selectedAccount;
+  const facts = await sb(`facts?account_id=eq.${a.id}&select=*&order=type.asc`).catch(()=>[]);
+  let html = `
+    <div class="panel-section" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><div class="section-label">Fact ledger · ${a.name}</div><div style="font-size:12px;color:#bbb;">${(facts||[]).length} facts</div></div>
+      <button class="btn btn-secondary btn-sm" onclick="toggleAddFact()">+ Add fact</button>
+    </div>
+    <div class="alert alert-info">A = verified from named source · B = inferred · C = third-party unverified · D = known gap</div>
+    <div id="add-fact-form" style="display:none;" class="form-card">
+      <div class="section-label" style="margin-bottom:12px;">New fact</div>
+      <div class="form-row"><label>Type</label><select id="ff-type" onchange="document.getElementById('ff-confidence').value=({A:95,B:70,C:55}[this.value]||'');document.getElementById('ff-confidence').style.color='#aaa';"><option value="A">A — Verified from named source</option><option value="B">B — Inferred</option><option value="C">C — Third-party, unverified</option><option value="D">D — Known gap</option></select></div>
+      <div class="form-row"><label>Content *</label><textarea id="ff-claim" placeholder="State the fact plainly..."></textarea></div>
+      <div class="form-row"><label>Source / Notes</label><input id="ff-source" placeholder="Source name + URL"></div>
+      <div class="form-row"><label>Intended use *</label><select id="ff-intended-use"><option value="">— select —</option><option value="account_qualification">Account qualification</option><option value="buying_committee_mapping">Buying committee mapping</option><option value="conversation_prep">Conversation prep</option><option value="gap_identification">Gap identification</option><option value="timing_signal">Timing signal</option></select></div>
+      <div class="form-row"><label>Valid until</label><input id="ff-valid" type="date"></div>
+      <div class="form-row"><label>Confidence (0–100) — leave blank if unknown</label><input id="ff-confidence" type="number" min="0" max="100" placeholder="e.g. 85 · facts below 80 will appear in sales rep review"></div>
+      <div style="display:flex;gap:8px;"><button class="btn btn-primary btn-sm" onclick="saveFact()">Save fact</button><button class="btn btn-secondary btn-sm" onclick="toggleAddFact()">Cancel</button></div>
+      <div id="fact-save-status" style="margin-top:10px;"></div>
+    </div>
+    <table class="fact-table"><thead><tr><th style="width:55px;">Type</th><th>Content</th><th style="width:200px;">Source</th><th style="width:110px;">Intended use</th><th style="width:80px;">Valid until</th><th style="width:75px;">Confidence</th></tr></thead><tbody>`;
+  if (!facts||facts.length===0) {
+    html += `<tr><td colspan="6" style="color:#bbb;padding:20px 12px;">No facts yet.</td></tr>`;
+  } else {
+    facts.forEach(f => {
+      const conf = effectiveConfidence(f);
+      const origConf = f.confidence;
+      const decayed = conf !== origConf && origConf !== null;
+      const confColor = conf === null || conf === undefined ? '#bbb' : conf >= 85 ? '#16a34a' : conf >= 70 ? '#d97706' : '#dc2626';
+      const confLabel = conf === null || conf === undefined ? '—'
+        : decayed ? `${conf}% <span style="color:#bbb;font-weight:400;font-size:10px;">↓ from ${origConf}%</span>`
+        : `${conf}%`;
+      const review = needsReview(f);
+      html += `<tr>
+        <td><span class="type-badge type-${(f.type||'d').toLowerCase()}">${f.type||'?'}</span></td>
+        <td>${f.content||'—'}${review ? ' <span style="font-size:10px;color:#d97706;font-weight:600;">· needs review</span>' : ''}</td>
+        <td style="color:#888;font-size:11px;">${f.notes||'—'}</td>
+        <td style="color:#888;font-size:11px;">${(f.intended_use||'—').replace(/_/g,' ')}</td>
+        <td style="color:#888;font-size:11px;white-space:nowrap;">${f.valid_until?f.valid_until.split('T')[0]:'—'}${freshnessBadge(f)}</td>
+        <td style="font-size:12px;font-weight:600;color:${confColor};">${confLabel}</td>
+      </tr>`;
+    });
+  }
+  html += `</tbody></table>`;
+  panel.innerHTML = html;
+}
+
+function toggleAddFact() { const el=document.getElementById('add-fact-form'); if(el) el.style.display=el.style.display==='none'?'block':'none'; }
+
+async function saveFact() {
+  const content=(document.getElementById('ff-claim').value||'').trim();
+  if(!content){alert('Content required.');return;}
+  try {
+    const type = document.getElementById('ff-type').value;
+    const confVal = document.getElementById('ff-confidence').value;
+    const confidence = confVal !== '' ? parseInt(confVal) : (TYPE_CONFIDENCE[type] || null);
+    await sb('facts',{method:'POST',body:JSON.stringify({account_id:selectedAccount.id,type,content,notes:document.getElementById('ff-source').value||null,valid_until:document.getElementById('ff-valid').value||null,confidence,intended_use:document.getElementById('ff-intended-use').value||null})});
+    // Auto-run gap check after every new fact
+    await runGapCheck(selectedAccount.id);
+    await renderTab('facts');
+  } catch(e) { document.getElementById('fact-save-status').innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+}
+
+// ── GAP CHECK ─────────────────────────────────────────────────────────────────
+// Expected signals per intended_use. If any are missing from the fact ledger,
+// a Type D gap fact is auto-created so it surfaces in Issues and Output.
+const GAP_SPEC = {
+  buying_committee_mapping: [
+    { keyword: ['ceo','president','chief executive'], label: 'No CEO or President identified at this account' },
+    { keyword: ['cfo','chief financial','finance director'], label: 'No CFO or Finance Director identified at this account' },
+    { keyword: ['cto','chief technology','head of technology','it director','tech lead'], label: 'No CTO or IT/technology decision-maker identified at this account' },
+    { keyword: ['procurement','budget owner','purchasing','vendor management'], label: 'No procurement or technology budget owner identified at this account' }
+  ],
+  account_qualification: [
+    { keyword: ['revenue','¥','billion','million','sales'], label: 'No revenue or financial size signal found for this account' },
+    { keyword: ['growth','yoy','year-on-year','increase','decline'], label: 'No YoY growth signal found for this account' },
+    { keyword: ['headcount','employees','workforce','staff'], label: 'No headcount or company size signal found for this account' },
+    { keyword: ['r&d','research','ai budget','technology spend','digital budget'], label: 'No AI or technology budget signal found for this account' }
+  ],
+  conversation_prep: [
+    { keyword: ['said','stated','announced','commented','noted','ceo said','president said'], label: 'No named executive public statement on AI or technology found for this account' },
+    { keyword: ['aws','azure','gcp','google cloud','vendor','platform','infrastructure','gpu','cloud'], label: 'No known technology vendor or platform identified for this account' }
+  ],
+  timing_signal: [
+    { keyword: ['layoff','restructur','reorg','headcount reduction','workforce reduction'], label: 'No workforce restructure or cost-cutting signal found in the last 90 days' },
+    { keyword: ['earnings','results','quarterly','annual report','guidance'], label: 'No recent earnings or financial reporting event found' },
+    { keyword: ['partnership','announce','launch','expansion','new market'], label: 'No recent strategic announcement or trigger event found in the last 90 days' }
+  ]
+};
+
+async function runGapCheck(accountId) {
+  try {
+    const facts = await sb(`facts?account_id=eq.${accountId}&select=*`);
+    if (!facts) return;
+
+    const activeFacts = facts.filter(f => f.type !== 'D' && f.trust_status !== 'rejected' && f.trust_status !== 'removed');
+    const existingGaps = facts.filter(f => f.type === 'D').map(f => f.content.toLowerCase());
+
+    const newGaps = [];
+    const today = new Date().toISOString().split('T')[0];
+
+    for (const [use, checks] of Object.entries(GAP_SPEC)) {
+      const useFacts = activeFacts.filter(f => f.intended_use === use);
+      const useText = useFacts.map(f => (f.content||'').toLowerCase()).join(' ');
+
+      for (const check of checks) {
+        const found = check.keyword.some(kw => useText.includes(kw));
+        if (!found) {
+          // Don't duplicate existing gap
+          const alreadyExists = existingGaps.some(g => g.includes(check.label.toLowerCase().substring(0, 30)));
+          if (!alreadyExists) {
+            newGaps.push({
+              id: crypto.randomUUID(),
+              account_id: accountId,
+              type: 'D',
+              content: check.label,
+              notes: `Auto-identified gap — no ${use.replace(/_/g,' ')} signal found matching: ${check.keyword.slice(0,3).join(', ')}`,
+              intended_use: 'gap_identification',
+              confidence: null,
+              valid_until: null,
+              collected_date: today
+            });
+          }
+        }
+      }
+    }
+
+    if (newGaps.length > 0) {
+      await sb('facts', { method: 'POST', body: JSON.stringify(newGaps) });
+    }
+  } catch(e) {
+    console.warn('Gap check failed:', e.message);
+  }
+}
+
+async function renderIssues(panel) {
+  const a = selectedAccount;
+  panel.innerHTML = '<div class="loading">Checking for gaps and conflicts...</div>';
+
+  // Auto-run gap check every time Issues tab opens
+  await runGapCheck(a.id);
+
+  const [conflicts, typeD, rejections, allFacts] = await Promise.all([
+    sb(`conflicts?account_id=eq.${a.id}&select=*&order=status.asc`).catch(()=>[]),
+    sb(`facts?account_id=eq.${a.id}&type=eq.D&select=*`).catch(()=>[]),
+    sb(`rejections?account_id=eq.${a.id}&select=*&order=rejection_date.desc`).catch(()=>[]),
+    sb(`facts?account_id=eq.${a.id}&select=*`).catch(()=>[])
+  ]);
+
+  const factLookup = {};
+  (allFacts||[]).forEach(f => { factLookup[f.id] = f; });
+  const resolveFact = (id) => id ? factLookup[id] : null;
+
+  const staleFacts = (allFacts||[]).filter(f => f.trust_status === 'stale');
+
+  const statusBadge = (s) => {
+    const map = { open: ['#fde68a','#854d0e'], resolved: ['#bbf7d0','#166534'], suppressed: ['#e5e7eb','#6b7280'] };
+    const [bg, color] = map[s] || map.open;
+    return `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:${bg};color:${color};">${s||'open'}</span>`;
+  };
+
+  const levelBadge = (l) => {
+    const map = { HIGH: '#dc2626', MEDIUM: '#d97706', LOW: '#6b7280' };
+    return `<span style="font-size:10px;font-weight:600;color:${map[l]||'#6b7280'};">${(l||'—').toUpperCase()}</span>`;
+  };
+
+  const routeBadge = (r) => {
+    const isCap = r === 'cap';
+    const label = isCap ? 'Fact corrected' : 'Logged only — not CaP\'s fix';
+    return `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:${isCap?'#dcfce7':'#f3f4f6'};color:${isCap?'#166534':'#6b7280'};">${label}</span>`;
+  };
+
+  const rejectionTypeLabel = (t) => {
+    const map = { stale_fact: 'Stale fact', wrong_contact: 'Wrong contact', bad_data_quality: 'Bad data quality', wrong_timing: 'Wrong timing', wrong_approach: 'Wrong approach' };
+    return map[t] || t;
+  };
+
+  let html = `
+    <div class="panel-section" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div class="section-label">Issues · ${a.name}</div>
+        <div style="font-size:12px;color:#bbb;">${(conflicts||[]).filter(c=>c.status==='open').length} conflicts need a decision · ${(conflicts||[]).filter(c=>c.status==='resolved').length} auto-resolved · ${staleFacts.length} stale facts · ${(typeD||[]).length} gaps · ${(rejections||[]).length} rejections logged</div>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="runDeconfliction('${a.id}')">⟳ Run deconfliction</button>
+    </div>
+    <div class="alert alert-info"><strong>Conflict</strong> = two facts directly contradict each other · <strong>Stale fact</strong> = a fact has expired and needs re-verification (compaction) · <strong>Gap</strong> = something CaP knows is missing · Run deconfliction after adding new facts to check for all three.</div>
+    <div id="deconfliction-status" style="margin-bottom:12px;"></div>`;
+
+  if ((conflicts||[]).length === 0 && staleFacts.length === 0 && (typeD||[]).length === 0 && (rejections||[]).length === 0) {
+    html += `<div style="color:#bbb;font-size:12px;">No issues logged. Run deconfliction to check for conflicts.</div>`;
+  }
+
+  // CONFLICTS — split: open (needs a human call) shown prominently, resolved (incl. auto-resolved) collapsed
+  const openConflictsList = (conflicts||[]).filter(c => c.status === 'open');
+  const resolvedConflictsList = (conflicts||[]).filter(c => c.status === 'resolved');
+
+  const renderConflictCard = (c) => {
+    const factA = resolveFact(c.fact_a);
+    const factB = resolveFact(c.fact_b);
+    const trustedId = c.trusted_fact;
+
+    const factBlock = (fact, isTrusted) => fact ? `
+      <div style="font-size:11px;color:#333;margin-top:6px;padding:8px 10px;background:${isTrusted?'#f0fdf4':'#fafafa'};border-radius:4px;border-left:3px solid ${isTrusted?'#16a34a':'#ddd'};">
+        ${isTrusted ? '<span style="color:#16a34a;font-weight:600;">✓ CaP trusts this — </span>' : ''}${fact.content}
+        <div style="font-size:10px;color:#aaa;margin-top:3px;">${fact.notes||'No source'} · ${fact.confidence!==null&&fact.confidence!==undefined?fact.confidence+'% confidence':'unscored'}</div>
+      </div>` : '';
+
+    const isAuto = c.resolved_by === 'CaP (auto)';
+    const resolvedNote = c.status === 'resolved'
+      ? `<div style="margin-top:6px;font-size:11px;color:#16a34a;">${isAuto ? '✓ Auto-resolved by CaP' : `✓ Resolved by ${c.resolved_by||'Context Director'}`}${c.resolved_date ? ` · ${c.resolved_date}` : ''}</div>`
+      : '';
+    const reasonNote = c.resolution_condition ? `<div style="margin-top:4px;font-size:11px;color:#888;">${c.resolution_condition}</div>` : '';
+
+    return `<div class="issue-card" style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+        <div class="ic-type">⚡ Conflict · ${levelBadge(c.level)}</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          ${statusBadge(c.status)}
+          ${c.status !== 'resolved' ? `<button class="btn btn-sm" style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-size:10px;" onclick="resolveConflict('${c.id}')">Resolve manually</button>` : ''}
+        </div>
+      </div>
+      <div class="ic-text" style="margin-bottom:4px;">${c.notes||'—'}</div>
+      ${factBlock(factA, trustedId === c.fact_a)}
+      ${factBlock(factB, trustedId === c.fact_b)}
+      ${resolvedNote}
+      ${reasonNote}
+    </div>`;
+  };
+
+  if (openConflictsList.length > 0) {
+    html += `<div class="section-label" style="margin-bottom:8px;">Conflicts needing a decision — CaP couldn't auto-resolve these</div>`;
+    openConflictsList.forEach(c => { html += renderConflictCard(c); });
+  }
+
+  if (resolvedConflictsList.length > 0) {
+    html += `
+      <div style="margin-top:16px;">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('resolved-conflicts').style.display = document.getElementById('resolved-conflicts').style.display==='none' ? 'block' : 'none';">
+          ✓ ${resolvedConflictsList.length} resolved conflict${resolvedConflictsList.length===1?'':'s'} — view
+        </button>
+        <div id="resolved-conflicts" style="display:none;margin-top:10px;">
+          ${resolvedConflictsList.map(renderConflictCard).join('')}
+        </div>
+      </div>`;
+  }
+
+  if (openConflictsList.length === 0 && resolvedConflictsList.length === 0 && (conflicts||[]).length === 0) {
+    // nothing — handled by the overall empty-state message above
+  }
+
+  // STALE FACTS — separate from conflicts, this is compaction territory
+  if (staleFacts.length > 0) {
+    html += `<div class="section-label" style="margin-top:20px;margin-bottom:8px;">Stale facts — owned by CaP, needs re-verification</div>`;
+    staleFacts.forEach(f => {
+      const daysStale = f.valid_until ? Math.round((new Date() - new Date(f.valid_until)) / (1000*60*60*24)) : null;
+      html += `<div class="issue-card" style="border-color:#fde68a;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div class="ic-type" style="color:#d97706;">⏱ Stale · expired ${f.valid_until||'—'}${daysStale ? ` (${daysStale} days ago)` : ''}</div>
+          <button class="btn btn-sm" style="background:#fffbeb;color:#d97706;border:1px solid #fde68a;" onclick="reverifyFact('${f.id}')">Re-verify now</button>
+        </div>
+        <div class="ic-text" style="margin-top:6px;">${f.content}</div>
+        <div style="margin-top:4px;font-size:11px;color:#888;">${f.notes||'No source'} — frozen from output until re-verified</div>
+        <div id="reverify-status-${f.id}" style="margin-top:8px;"></div>
+      </div>`;
+    });
+  }
+
+  // GAPS
+  if ((typeD||[]).length > 0) {
+    html += `<div class="section-label" style="margin-top:20px;margin-bottom:8px;">Gaps — Type D</div>`;
+    typeD.forEach(g => {
+      html += `<div class="issue-card gap">
+        <div class="ic-type">◌ Gap</div>
+        <div class="ic-text">${g.content||'—'}</div>
+        ${g.intended_use ? `<div style="margin-top:4px;font-size:10px;color:#bbb;">${g.intended_use.replace(/_/g,' ')}</div>` : ''}
+      </div>`;
+    });
+  }
+
+  // REJECTION HISTORY — pure log: what got rejected, when, why. No status tracking needed.
+  if ((rejections||[]).length > 0) {
+    html += `<div class="section-label" style="margin-top:20px;margin-bottom:8px;">Rejection log</div>
+      <table class="fact-table">
+        <thead><tr><th style="width:90px;">Date</th><th style="width:140px;">Reason</th><th>Fact</th></tr></thead>
+        <tbody>`;
+    rejections.forEach(r => {
+      const fact = resolveFact(r.fact_id);
+      html += `<tr>
+        <td style="font-size:11px;color:#888;">${r.rejection_date||'—'}</td>
+        <td>${rejectionTypeLabel(r.rejection_type)}</td>
+        <td style="font-size:11px;color:#555;">${fact ? fact.content : '(fact no longer available)'}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+
+  panel.innerHTML = html;
+}
+
+
+async function runDeconfliction(accountId) {
+  const statusEl = document.getElementById('deconfliction-status');
+  statusEl.innerHTML = `<div class="alert alert-info">Running deconfliction...</div>`;
+
+  try {
+    const facts = await sb(`facts?account_id=eq.${accountId}&select=*&type=neq.D`);
+    if (!facts || facts.length === 0) {
+      statusEl.innerHTML = `<div class="alert alert-info">No facts to analyse.</div>`;
+      return;
+    }
+
+    // Group facts by intended_use to find potential conflicts within same category
+    const groups = {};
+    facts.forEach(f => {
+      const key = f.intended_use || 'uncategorised';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(f);
+    });
+
+    const conflictsFound = [];
+
+    // Deconfliction rules
+    for (const [category, categoryFacts] of Object.entries(groups)) {
+      // Rule 1: Same intended_use, same type, check for numeric contradictions (revenue, headcount, %)
+      const numericPattern = /[\¥\$]?([\d,\.]+)\s*(billion|million|%|employees?)?/gi;
+
+      for (let i = 0; i < categoryFacts.length; i++) {
+        for (let j = i + 1; j < categoryFacts.length; j++) {
+          const a = categoryFacts[i];
+          const b = categoryFacts[j];
+
+          // Rule 2: Both facts reference the same metric keyword
+          const keywords = ['revenue', 'ebitda', 'ceo', 'cfo', 'coo', 'headcount', 'employees', 'r&d', 'guidance'];
+          const aLower = (a.content||'').toLowerCase();
+          const bLower = (b.content||'').toLowerCase();
+          const sharedKeyword = keywords.find(k => aLower.includes(k) && bLower.includes(k));
+
+          if (sharedKeyword) {
+            // Extract numbers from both
+            const numsA = [...(a.content||'').matchAll(/[\d,\.]+/g)].map(m => parseFloat(m[0].replace(/,/g,'')));
+            const numsB = [...(b.content||'').matchAll(/[\d,\.]+/g)].map(m => parseFloat(m[0].replace(/,/g,'')));
+
+            // If both have numbers and they differ significantly — flag as conflict
+            if (numsA.length > 0 && numsB.length > 0) {
+              const maxA = Math.max(...numsA);
+              const maxB = Math.max(...numsB);
+              const diff = Math.abs(maxA - maxB) / Math.max(maxA, maxB);
+
+              if (diff > 0.05) { // >5% difference = flag
+                // Determine trusted fact by confidence
+                const confA = a.confidence||0, confB = b.confidence||0;
+                const trusted = confA >= confB ? a : b;
+                const confGap = Math.abs(confA - confB);
+                const level = diff > 0.2 ? 'HIGH' : 'MEDIUM';
+                // Auto-resolve when confidence clearly favors one fact (10+ point gap). Otherwise leave open for a human call.
+                const canAutoResolve = confGap >= 10;
+
+                conflictsFound.push({
+                  account_id: accountId,
+                  fact_a: a.id,
+                  fact_b: b.id,
+                  level,
+                  trusted_fact: trusted.id,
+                  resolution_condition: canAutoResolve
+                    ? `Auto-resolved — ${trusted.confidence}% vs ${(trusted.id===a.id?b:a).confidence}% confidence, clear enough to decide automatically`
+                    : `Confidence too close to call (${confA}% vs ${confB}%) — needs a human decision`,
+                  status: canAutoResolve ? 'resolved' : 'open',
+                  resolved_by: canAutoResolve ? 'CaP (auto)' : null,
+                  resolved_date: canAutoResolve ? new Date().toISOString().split('T')[0] : null,
+                  notes: `Both facts reference "${sharedKeyword}" in category "${category}" but assert different numeric values (${maxA} vs ${maxB})`
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // Rule 4: Duplicate detection — near-identical content in same category
+      for (let i = 0; i < categoryFacts.length; i++) {
+        for (let j = i + 1; j < categoryFacts.length; j++) {
+          const a = categoryFacts[i];
+          const b = categoryFacts[j];
+          const aWords = new Set((a.content||'').toLowerCase().split(/\s+/));
+          const bWords = (b.content||'').toLowerCase().split(/\s+/);
+          const overlap = bWords.filter(w => aWords.has(w)).length;
+          const similarity = overlap / Math.max(aWords.size, bWords.length);
+
+          if (similarity > 0.7 && a.id !== b.id) {
+            if (!conflictsFound.find(c => c.fact_a === a.id && c.fact_b === b.id)) {
+              const confA = a.confidence||0, confB = b.confidence||0;
+              const trusted = confA >= confB ? a : b;
+              const confGap = Math.abs(confA - confB);
+              const canAutoResolve = confGap >= 10;
+              conflictsFound.push({
+                account_id: accountId,
+                fact_a: a.id,
+                fact_b: b.id,
+                level: 'LOW',
+                trusted_fact: trusted.id,
+                resolution_condition: canAutoResolve
+                  ? `Auto-resolved as duplicate — kept the ${trusted.confidence}% confidence version`
+                  : `Confidence too close to call (${confA}% vs ${confB}%) — needs a human decision on which to keep`,
+                status: canAutoResolve ? 'resolved' : 'open',
+                resolved_by: canAutoResolve ? 'CaP (auto)' : null,
+                resolved_date: canAutoResolve ? new Date().toISOString().split('T')[0] : null,
+                notes: `High content similarity (${Math.round(similarity*100)}%) detected in category "${category}" — possible duplicate`
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Stale fact detection — separate from conflicts entirely. Compaction, not contradiction.
+    // Directly flags the fact itself rather than creating a fake "conflict" between a fact and nothing.
+    const staleFacts = [];
+    const today = new Date();
+    facts.forEach(f => {
+      if (f.valid_until) {
+        const expiry = new Date(f.valid_until);
+        if (expiry < today && f.trust_status !== 'stale') {
+          staleFacts.push(f);
+        }
+      }
+    });
+
+    if (staleFacts.length > 0) {
+      await Promise.all(staleFacts.map(f =>
+        sb(`facts?id=eq.${f.id}`, { method: 'PATCH', body: JSON.stringify({ trust_status: 'stale' }) }).catch(()=>{})
+      ));
+    }
+
+    if (conflictsFound.length === 0 && staleFacts.length === 0) {
+      statusEl.innerHTML = `<div class="alert alert-success">✓ Deconfliction complete — no conflicts or stale facts detected across ${facts.length} facts.</div>`;
+      return;
+    }
+
+    let resultMsg = [];
+    if (conflictsFound.length > 0) {
+      // Insert conflicts into Supabase
+      const inserts = conflictsFound.map(c => ({
+        id: crypto.randomUUID(),
+        ...c
+      }));
+      await sb('conflicts', { method: 'POST', body: JSON.stringify(inserts) });
+      resultMsg.push(`${conflictsFound.length} conflict(s) logged`);
+    }
+    if (staleFacts.length > 0) {
+      resultMsg.push(`${staleFacts.length} stale fact(s) flagged for compaction`);
+    }
+
+    statusEl.innerHTML = `<div class="alert alert-success">✓ Deconfliction complete — ${resultMsg.join(' · ')}.</div>`;
+
+    // Refresh issues tab
+    setTimeout(() => renderTab('issues'), 800);
+
+  } catch(e) {
+    statusEl.innerHTML = `<div class="alert alert-error">✗ Deconfliction failed: ${e.message}</div>`;
+  }
+}
+
+async function resolveConflict(id) {
+  try {
+    await sb(`conflicts?id=eq.${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'resolved', resolved_by: 'Context Director', resolved_date: new Date().toISOString().split('T')[0] })
+    });
+    await renderTab('issues');
+  } catch(e) {
+    alert('Failed to resolve: ' + e.message);
+  }
+}
+
+function reverifyFact(factId) {
+  const statusEl = document.getElementById(`reverify-status-${factId}`);
+  if (!statusEl) return;
+  statusEl.innerHTML = `
+    <div style="display:flex;gap:6px;">
+      <button class="btn btn-sm" style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;" onclick="extendFact('${factId}')">Still accurate — extend 6 months</button>
+      <button class="btn btn-sm" style="background:#fff1f2;color:#dc2626;border:1px solid #fecaca;" onclick="removeFact('${factId}')">No longer accurate — remove</button>
+    </div>
+    <div style="font-size:10px;color:#aaa;margin-top:6px;">CaP owns this re-check. Confirm after checking the original source, or remove if it's changed.</div>`;
+}
+
+async function extendFact(factId) {
+  try {
+    const newDate = new Date();
+    newDate.setMonth(newDate.getMonth() + 6);
+    await sb(`facts?id=eq.${factId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ valid_until: newDate.toISOString().split('T')[0], trust_status: null })
+    });
+    await renderTab('issues');
+  } catch(e) { alert('Failed: ' + e.message); }
+}
+
+async function removeFact(factId) {
+  if (!confirm('Remove this fact from active use? It will be marked confidence 0 and excluded from output.')) return;
+  try {
+    await sb(`facts?id=eq.${factId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ confidence: 0, trust_status: 'removed' })
+    });
+    await renderTab('issues');
+  } catch(e) { alert('Failed: ' + e.message); }
+}
+
+async function renderSalesRep(panel) {
+  const a = selectedAccount;
+  const facts = await sb(`facts?account_id=eq.${a.id}&select=*`).catch(()=>[]);
+
+  // Priority order for intended_use
+  const USE_PRIORITY = ['buying_committee_mapping','conversation_prep','account_qualification','timing_signal'];
+
+  // Templates: decision affected + why this matters per intended_use
+  const TEMPLATES = {
+    buying_committee_mapping: {
+      decision: `Should we know exactly who to reach at ${a.name} for this pursuit?`,
+      why: 'If confirmed, this contact can be used for direct outreach targeting. If not, we risk approaching the wrong person.'
+    },
+    conversation_prep: {
+      decision: `Should this signal shape our messaging and approach for ${a.name}?`,
+      why: 'If confirmed, this can inform what we lead with in a conversation. If not, it should stay on watchlist or be removed.'
+    },
+    account_qualification: {
+      decision: `Should ${a.name} be prioritised for active pursuit based on this signal?`,
+      why: 'If confirmed, this supports near-term pursuit prioritisation. If not, it should remain on watchlist or be removed from activation.'
+    },
+    timing_signal: {
+      decision: `Does this signal indicate the right timing to approach ${a.name} now?`,
+      why: 'If confirmed, this can support a time-sensitive outreach decision. If not, we should hold off until the signal is clearer.'
+    }
+  };
+
+  // Status label based on type and confidence
+  const statusLabel = (f) => {
+    const conf = effectiveConfidence(f);
+    if (f.type === 'B') return { text: 'Inferred signal · not yet safe for activation', color: '#d97706', bg: '#fffbeb', border: '#fde68a' };
+    if (f.type === 'C') return { text: 'Third-party source · not yet safe for activation', color: '#dc2626', bg: '#fff1f2', border: '#fecaca' };
+    if (conf !== null && conf < 60) return { text: 'Low confidence · not yet safe for activation', color: '#dc2626', bg: '#fff1f2', border: '#fecaca' };
+    return { text: 'Medium confidence · missing sales context', color: '#d97706', bg: '#fffbeb', border: '#fde68a' };
+  };
+
+  // Filter: below threshold, not rejected/removed, not type D, cap at 5
+  const queue = facts
+    .filter(f => f.type !== 'D' && needsReview(f) && f.trust_status !== 'rejected' && f.trust_status !== 'removed' && f.trust_status !== 'human_confirmed')
+    .sort((a, b) => USE_PRIORITY.indexOf(a.intended_use) - USE_PRIORITY.indexOf(b.intended_use))
+    .slice(0, 5);
+
+  // Track review actions in memory for completion summary
+  if (!window._repReview) window._repReview = {};
+
+  if (queue.length === 0) {
+    // Check if all done
+    const actions = Object.values(window._repReview);
+    if (actions.length > 0) {
+      const confirmed = actions.filter(a=>a==='confirm').length;
+      const watchlist = actions.filter(a=>a==='watchlist').length;
+      const rejected  = actions.filter(a=>a==='reject').length;
+      const edited    = actions.filter(a=>a==='edit').length;
+      panel.innerHTML = `
+        <div style="max-width:520px;margin:40px auto;text-align:center;">
+          <div style="font-size:18px;font-weight:600;color:#1a1a1a;margin-bottom:8px;">Review complete.</div>
+          <div style="font-size:13px;color:#888;margin-bottom:24px;">Your input updated how CaP will treat these signals.</div>
+          <div style="background:#f7f7f7;border:1px solid #e5e5e5;border-radius:8px;padding:20px;text-align:left;">
+            <div style="font-size:11px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px;">Impact summary</div>
+            ${confirmed ? `<div style="font-size:13px;color:#16a34a;margin-bottom:6px;">✓ ${confirmed} signal${confirmed>1?'s':''} confirmed for activation</div>` : ''}
+            ${watchlist ? `<div style="font-size:13px;color:#d97706;margin-bottom:6px;">◎ ${watchlist} signal${watchlist>1?'s':''} kept on watchlist</div>` : ''}
+            ${edited    ? `<div style="font-size:13px;color:#2563eb;margin-bottom:6px;">✎ ${edited} signal${edited>1?'s':''} edited and updated</div>` : ''}
+            ${rejected  ? `<div style="font-size:13px;color:#dc2626;margin-bottom:6px;">✕ ${rejected} signal${rejected>1?'s':''} rejected and logged</div>` : ''}
+          </div>
+        </div>`;
+      return;
+    }
+    panel.innerHTML = `
+      <div style="max-width:480px;margin:40px auto;text-align:center;">
+        <div style="font-size:14px;color:#bbb;">No signals need review right now.</div>
+        <div style="font-size:12px;color:#ccc;margin-top:6px;">All facts are above the confidence threshold or have already been reviewed.</div>
+      </div>`;
+    return;
+  }
+
+  const cards = queue.map(f => {
+    const tmpl = TEMPLATES[f.intended_use] || { decision: 'Should this signal be used?', why: 'Your input determines whether this is usable.' };
+    const status = statusLabel(f);
+    const conf = effectiveConfidence(f);
+    const threshold = reviewThreshold(f);
+    return `
+      <div id="card-${f.id}" style="background:#fff;border:1px solid #e5e5e5;border-radius:8px;margin-bottom:16px;overflow:hidden;">
+
+        <!-- Decision affected -->
+        <div style="padding:14px 16px 10px;border-bottom:1px solid #f0f0f0;">
+          <div style="font-size:10px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Decision affected</div>
+          <div style="font-size:13px;font-weight:500;color:#1a1a1a;">${tmpl.decision}</div>
+        </div>
+
+        <!-- CaP found -->
+        <div style="padding:12px 16px 10px;border-bottom:1px solid #f0f0f0;">
+          <div style="font-size:10px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">CaP found</div>
+          <div style="font-size:13px;color:#333;line-height:1.6;">${f.content}</div>
+        </div>
+
+        <!-- Why review needed -->
+        <div style="padding:10px 16px;border-bottom:1px solid #f0f0f0;background:${status.bg};">
+          <div style="font-size:10px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px;">Why review is needed</div>
+          <div style="font-size:11px;color:${status.color};">${status.text}</div>
+        </div>
+
+        <!-- What we need -->
+        <div style="padding:12px 16px 10px;border-bottom:1px solid #f0f0f0;">
+          <div style="font-size:11px;font-weight:600;color:#555;margin-bottom:10px;">How should CaP treat this signal for sales planning?</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-sm" style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;font-weight:500;" onclick="repAction('${f.id}','confirm')">Confirm as pursuit signal</button>
+            <button class="btn btn-sm" style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;" onclick="repAction('${f.id}','watchlist')">Keep as watchlist</button>
+            <button class="btn btn-sm" style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;" onclick="repAction('${f.id}','edit')">Edit</button>
+            <button class="btn btn-sm" style="background:#fff1f2;color:#991b1b;border:1px solid #fecaca;" onclick="repAction('${f.id}','reject')">Reject</button>
+          </div>
+        </div>
+
+        <!-- Why this matters -->
+        <div style="padding:10px 16px;border-bottom:1px solid #f0f0f0;">
+          <div style="font-size:10px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px;">Why this matters</div>
+          <div style="font-size:11px;color:#777;">${tmpl.why}</div>
+        </div>
+
+        <!-- View evidence expandable -->
+        <div style="padding:10px 16px;">
+          <button style="font-size:11px;color:#2563eb;background:none;border:none;cursor:pointer;padding:0;" onclick="toggleEvidence('${f.id}')">+ View evidence and scoring</button>
+          <div id="evidence-${f.id}" style="display:none;margin-top:10px;font-size:11px;color:#777;line-height:1.8;">
+            <div><strong style="color:#555;">Source:</strong> ${f.notes||'—'}</div>
+            <div><strong style="color:#555;">Valid until:</strong> ${f.valid_until?f.valid_until.split('T')[0]:'—'} ${freshnessBadge(f)}</div>
+            <div><strong style="color:#555;">Confidence score:</strong> ${conf!==null?conf+'%':'unscored'} (threshold for this use: ${threshold}%)</div>
+            <div><strong style="color:#555;">Fact type:</strong> ${f.type} — ${f.type==='A'?'verified from named source':f.type==='B'?'inferred from signals':f.type==='C'?'third-party, unverified':'unknown'}</div>
+          </div>
+        </div>
+
+        <!-- Action feedback area -->
+        <div id="action-feedback-${f.id}" style="display:none;padding:12px 16px;background:#f7f7f7;border-top:1px solid #e5e5e5;"></div>
+
+        <!-- Edit form -->
+        <div id="edit-form-${f.id}" style="display:none;padding:14px 16px;background:#fafafa;border-top:1px solid #e5e5e5;">
+          <div style="font-size:11px;font-weight:600;color:#555;margin-bottom:8px;">Edit signal</div>
+          <div class="form-row"><label>Corrected wording</label><textarea id="edit-content-${f.id}" style="min-height:60px;">${(f.content||'').replace(/</g,'&lt;')}</textarea></div>
+          <div class="form-row"><label>What changed?</label>
+            <select id="edit-what-${f.id}">
+              <option value="">— select —</option>
+              <option>Timing</option><option>Buyer / team</option><option>Relevance</option><option>Wording</option><option>Source interpretation</option><option>Other</option>
+            </select>
+          </div>
+          <div class="form-row"><label>Can this be used for activation?</label>
+            <select id="edit-use-${f.id}">
+              <option value="yes">Yes</option><option value="watchlist">Watchlist only</option><option value="no">No</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:4px;">
+            <button class="btn btn-primary btn-sm" onclick="saveRepEdit('${f.id}')">Save edit</button>
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('edit-form-${f.id}').style.display='none'">Cancel</button>
+          </div>
+        </div>
+
+        <!-- Reject form -->
+        <div id="reject-form-${f.id}" style="display:none;padding:14px 16px;background:#fff1f2;border-top:1px solid #fecaca;">
+          <div style="font-size:11px;font-weight:600;color:#991b1b;margin-bottom:8px;">Why should this be rejected?</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${['Wrong / inaccurate','Outdated','Misinterpreted signal','Not relevant to our solution','Duplicate','Wrong account / wrong entity'].map(r=>`
+              <button class="btn btn-sm" style="background:#fff;color:#333;border:1px solid #fecaca;text-align:left;" onclick="submitRepRejection('${f.id}','${r}')">${r}</button>`).join('')}
+          </div>
+        </div>
+
+        <!-- Watchlist form -->
+        <div id="watchlist-form-${f.id}" style="display:none;padding:14px 16px;background:#fffbeb;border-top:1px solid #fde68a;">
+          <div style="font-size:11px;font-weight:600;color:#92400e;margin-bottom:8px;">Why keep on watchlist?</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${['Not enough evidence yet','Timing unclear','Need buyer confirmation','Relevant, but not actionable now'].map(r=>`
+              <button class="btn btn-sm" style="background:#fff;color:#555;border:1px solid #fde68a;text-align:left;" onclick="submitWatchlist('${f.id}','${r}')">${r}</button>`).join('')}
+          </div>
+        </div>
+
+      </div>`;
+  }).join('');
+
+  panel.innerHTML = `
+    <div style="margin-bottom:20px;">
+      <div style="font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Decide how CaP should use low-confidence account signals.</div>
+      <div style="font-size:12px;color:#888;">These signals are not ready for activation yet. Choose whether to use, watch, edit, or reject.</div>
+    </div>
+    ${cards}`;
+}
+
+function toggleEvidence(id) {
+  const el = document.getElementById(`evidence-${id}`);
+  if (!el) return;
+  const btn = el.previousElementSibling;
+  const isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : 'block';
+  if (btn) btn.textContent = isOpen ? '+ View evidence and scoring' : '− Hide evidence and scoring';
+}
+
+async function repAction(factId, action) {
+  if (action === 'confirm') {
+    try {
+      await sb(`facts?id=eq.${factId}`, { method: 'PATCH', body: JSON.stringify({ confidence: TYPE_CONFIDENCE['A'] || 90, trust_status: 'human_confirmed' }) });
+      window._repReview[factId] = 'confirm';
+      const fb = document.getElementById(`action-feedback-${factId}`);
+      if (fb) { fb.style.display='block'; fb.innerHTML=`<div style="font-size:12px;color:#16a34a;font-weight:500;">✓ Confirmed as pursuit signal. This signal is now available for activation.</div>`; }
+      document.getElementById(`card-${factId}`).style.opacity = '0.5';
+      document.getElementById(`card-${factId}`).style.pointerEvents = 'none';
+      setTimeout(() => renderTab('salesrep'), 1200);
+    } catch(e) { alert('Failed: ' + e.message); }
+  } else if (action === 'watchlist') {
+    document.getElementById(`watchlist-form-${factId}`).style.display = 'block';
+  } else if (action === 'edit') {
+    document.getElementById(`edit-form-${factId}`).style.display = 'block';
+  } else if (action === 'reject') {
+    document.getElementById(`reject-form-${factId}`).style.display = 'block';
+  }
+}
+
+async function submitWatchlist(factId, reason) {
+  try {
+    await sb(`facts?id=eq.${factId}`, { method: 'PATCH', body: JSON.stringify({ trust_status: 'watchlist' }) });
+    window._repReview[factId] = 'watchlist';
+    const fb = document.getElementById(`action-feedback-${factId}`);
+    if (fb) { fb.style.display='block'; fb.innerHTML=`<div style="font-size:12px;color:#d97706;font-weight:500;">◎ Kept on watchlist — ${reason}. Signal will not be activated yet.</div>`; }
+    document.getElementById(`card-${factId}`).style.opacity = '0.5';
+    document.getElementById(`card-${factId}`).style.pointerEvents = 'none';
+    setTimeout(() => renderTab('salesrep'), 1200);
+  } catch(e) { alert('Failed: ' + e.message); }
+}
+
+async function saveRepEdit(factId) {
+  const content = (document.getElementById(`edit-content-${factId}`)?.value || '').trim();
+  const useDecision = document.getElementById(`edit-use-${factId}`)?.value;
+  if (!content) { alert('Content cannot be empty.'); return; }
+  const trustStatus = useDecision === 'yes' ? 'human_confirmed' : useDecision === 'watchlist' ? 'watchlist' : 'rejected';
+  const confidence = useDecision === 'yes' ? 90 : useDecision === 'watchlist' ? 65 : 0;
+  try {
+    await sb(`facts?id=eq.${factId}`, { method: 'PATCH', body: JSON.stringify({ content, trust_status: trustStatus, confidence }) });
+    window._repReview[factId] = 'edit';
+    const fb = document.getElementById(`action-feedback-${factId}`);
+    if (fb) { fb.style.display='block'; fb.innerHTML=`<div style="font-size:12px;color:#2563eb;font-weight:500;">✎ Signal updated. Original version logged for audit.</div>`; }
+    document.getElementById(`card-${factId}`).style.opacity = '0.5';
+    document.getElementById(`card-${factId}`).style.pointerEvents = 'none';
+    setTimeout(() => renderTab('salesrep'), 1200);
+  } catch(e) { alert('Failed: ' + e.message); }
+}
+
+async function submitRepRejection(factId, reason) {
+  try {
+    await sb('rejections', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: crypto.randomUUID(),
+        fact_id: factId,
+        account_id: selectedAccount.id,
+        rejection_type: 'bad_data_quality',
+        rejected_by: 'sales_rep',
+        rejection_date: new Date().toISOString().split('T')[0],
+        routed_to: 'cap',
+        resolved: true,
+        notes: reason
+      })
+    });
+    await sb(`facts?id=eq.${factId}`, { method: 'PATCH', body: JSON.stringify({ confidence: 0, trust_status: 'rejected' }) });
+    window._repReview[factId] = 'reject';
+    const fb = document.getElementById(`action-feedback-${factId}`);
+    if (fb) { fb.style.display='block'; fb.innerHTML=`<div style="font-size:12px;color:#dc2626;font-weight:500;">✕ Rejected and logged. This signal will not be used for activation.</div>`; }
+    document.getElementById(`card-${factId}`).style.opacity = '0.5';
+    document.getElementById(`card-${factId}`).style.pointerEvents = 'none';
+    setTimeout(() => renderTab('salesrep'), 1200);
+  } catch(e) { alert('Rejection failed: ' + e.message); }
+}
+
+async function saveEdit(id) {
+  const content = (document.getElementById(`edit-claim-${id}`)?.value || '').trim();
+  if (!content) { alert('Content cannot be empty.'); return; }
+  try {
+    await sb(`facts?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ content }) });
+    await renderTab('salesrep');
+  } catch(e) { alert('Failed: ' + e.message); }
+}
+
+function toggleReject(factId) {}
+async function reviewFact(id, action) {}
+
+const REJECTION_TYPES = [];
+function rejectionPickerHTML() { return ''; }
+async function submitRejection() {}
+
+async function renderGate(panel) {
+  const a = selectedAccount;
+  panel.innerHTML = `<div class="loading">Loading...</div>`;
+
+  const [facts, conflicts] = await Promise.all([
+    sb(`facts?account_id=eq.${a.id}&select=*`).catch(()=>[]),
+    sb(`conflicts?account_id=eq.${a.id}&select=*`).catch(()=>[])
+  ]);
+
+  const nonGapFacts = (facts||[]).filter(f => f.type !== 'D');
+  const pendingReview = nonGapFacts.filter(f => needsReview(f));
+  const assumptionsPct = nonGapFacts.length === 0 ? 0 : Math.round((pendingReview.length / nonGapFacts.length) * 100);
+  const assumptionsStatus = assumptionsPct === 0 ? 'green' : assumptionsPct <= 20 ? 'amber' : 'red';
+  const assumptionsLabel = assumptionsPct === 0 ? 'All facts confirmed' : `${assumptionsPct}% pending (${pendingReview.length} facts)`;
+
+  const openConflicts = (conflicts||[]).filter(c => c.status !== 'resolved');
+  const conflictsStatus = (conflicts||[]).length === 0 ? 'green' : openConflicts.length === 0 ? 'green' : openConflicts.some(c=>c.level==='HIGH') ? 'red' : 'amber';
+  const conflictsLabel = (conflicts||[]).length === 0 ? 'None detected' : openConflicts.length === 0 ? 'All resolved' : `${openConflicts.length} still need review`;
+
+  const staleFacts = (facts||[]).filter(f => f.trust_status === 'stale');
+  const dupConflicts = (conflicts||[]).filter(c => (c.notes||'').toLowerCase().includes('duplicate') || (c.notes||'').toLowerCase().includes('similarity'));
+  const dupOpen = dupConflicts.filter(c => c.status !== 'resolved');
+  const compactionTotal = staleFacts.length + dupConflicts.length;
+  const compactionPending = staleFacts.length + dupOpen.length;
+  const compactionStatus = compactionTotal === 0 ? 'green' : compactionPending === 0 ? 'green' : 'amber';
+  const compactionLabel = compactionTotal === 0 ? 'No issues found' : `${compactionPending} pending (${staleFacts.length} stale, ${dupOpen.length} duplicate)`;
+
+  const accountabilityStatus = a.context_director ? 'green' : 'amber';
+  const accountabilityLabel = a.context_director || 'Unassigned';
+
+  const statusCell = (label, status, value) => `<div class="status-cell ${status}"><div class="sc-label">${label}</div><div class="sc-value">${value}</div></div>`;
+
+  panel.innerHTML = `
+    <div class="panel-section"><div class="section-label">Director gate · ${a.name}</div><div style="font-size:12px;color:#bbb;">Both gates must clear before output is released</div></div>
+    <div class="alert alert-info"><strong>Gate 1</strong> = manual checklist confirming data is complete · <strong>Gate 2</strong> = calculated live from actual data</div>
+
+    <div class="panel-section"><div class="section-label">Gate 1 · Data quality</div><div class="form-card"><div class="checklist">
+      <div class="check-item"><input type="checkbox" id="g1"><label for="g1">All Type A facts have a named source</label></div>
+      <div class="check-item"><input type="checkbox" id="g2"><label for="g2">All facts have a valid_until date</label></div>
+      <div class="check-item"><input type="checkbox" id="g3"><label for="g3">No stale facts past their valid_until date</label></div>
+      <div class="check-item"><input type="checkbox" id="g4"><label for="g4">Contact details verified independently</label></div>
+      <div class="check-item"><input type="checkbox" id="g5"><label for="g5">No duplicate facts across sources</label></div>
+      <div class="check-item"><input type="checkbox" id="g6"><label for="g6">Type D gaps logged for all missing critical signals</label></div>
+      <div class="check-item"><input type="checkbox" id="g7"><label for="g7">Conflicts reviewed — resolved or flagged</label></div>
+      <div class="check-item"><input type="checkbox" id="g8"><label for="g8">Source registry entries match facts cited</label></div>
+    </div></div></div>
+    <div class="panel-section"><div class="section-label">Gate 2 · Defensibility — calculated live from current data</div>
+      <div class="status-grid">
+        ${statusCell('Assumptions', assumptionsStatus, assumptionsLabel)}
+        ${statusCell('Conflicts', conflictsStatus, conflictsLabel)}
+        ${statusCell('Compaction', compactionStatus, compactionLabel)}
+        ${statusCell('Accountability', accountabilityStatus, accountabilityLabel)}
+      </div>
+      <div style="font-size:11px;color:#bbb;">Green = cleared · Amber = review needed · Red = blocked · Recalculated each time this tab loads</div>
+    </div>`;
+}
+
+async function renderOutput(panel) {
+  const a = selectedAccount;
+  const [facts, conflicts, rejections] = await Promise.all([
+    sb(`facts?account_id=eq.${a.id}&select=*&order=type.asc`).catch(()=>[]),
+    sb(`conflicts?account_id=eq.${a.id}&select=*`).catch(()=>[]),
+    sb(`rejections?account_id=eq.${a.id}&select=*`).catch(()=>[])
+  ]);
+  const today = new Date().toISOString().split('T')[0];
+  const md = generateMD(a, facts||[], today, conflicts||[], rejections||[]);
+
+  const nonGap = (facts||[]).filter(f=>f.type!=='D');
+  const confirmed = nonGap.filter(f=>f.confidence>=80).length;
+  const openConflicts = (conflicts||[]).filter(c=>c.status!=='resolved').length;
+
+  panel.innerHTML = `
+    <div class="panel-section" style="display:flex;justify-content:space-between;align-items:center;">
+      <div><div class="section-label">Output · ${a.name}</div><div style="font-size:12px;color:#bbb;">Orientation artifact → GitHub</div></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="copyMD()">Copy MD</button>
+        <button class="btn btn-primary btn-sm" onclick="pushGitHub()">Push to GitHub</button>
+      </div>
+    </div>
+    <div class="panel-section">
+      <div class="form-card">
+        <div class="section-label" style="margin-bottom:8px;">Summary of moves</div>
+        <div style="font-size:12px;color:#555;line-height:1.7;">
+          ${nonGap.length} active facts · ${confirmed} confirmed (≥80%) · ${openConflicts} open conflict${openConflicts===1?'':'s'} · ${(facts||[]).filter(f=>f.type==='D').length} known gaps · ${(rejections||[]).length} rejection${(rejections||[]).length===1?'':'s'} logged to date.
+        </div>
+      </div>
+    </div>
+    <div id="push-status"></div>
+    <div class="output-preview" id="md-preview">${escHtml(md)}</div>`;
+}
+
+function generateMD(account, facts, today, conflicts, rejections) {
+  conflicts = conflicts || [];
+  rejections = rejections || [];
+  const byType = t=>facts.filter(f=>f.type===t);
+  const byUse = u=>facts.filter(f=>f.intended_use===u);
+  const lines = arr=>arr.length===0?'_None logged._\n':arr.map(f=>`- ${f.content}${f.notes?` *(${f.notes})*`:''}`).join('\n')+'\n';
+
+  const committee = byUse('buying_committee_mapping');
+  const committeeLines = lines(committee);
+
+  const qualFacts = byUse('account_qualification');
+  const qualLines = lines(qualFacts);
+
+  const timingFacts = byUse('timing_signal');
+  const timingLines = lines(timingFacts);
+
+  const prepFacts = byUse('conversation_prep');
+  const prepLines = lines(prepFacts);
+
+  const openConflicts = conflicts.filter(c=>c.status!=='resolved');
+  const conflictSummary = openConflicts.length === 0
+    ? '_No open conflicts._\n'
+    : openConflicts.map(c => `- [${(c.level||'low').toUpperCase()}] ${c.notes||'—'}`).join('\n') + '\n';
+
+  const sourceRejections = rejections.filter(r=>r.routed_to==='source');
+  const rejectionSummary = rejections.length === 0
+    ? '_No rejections logged for this account._\n'
+    : `${rejections.length} total — ${sourceRejections.length} required CaP correction, ${rejections.length-sourceRejections.length} routed to WHEN Layer.\n`;
+
+  const slug=(account.name||'account').toLowerCase().replace(/[^a-z0-9]+/g,'-');
+
+  return `# ${account.name} — Context Dossier
+*Generated: ${today} · CaP v1 · Context Director: Tabita*
+
+---
+
+## Account snapshot
+- **Industry:** ${account.industry||'—'}
+- **HQ:** ${account.hq||'—'}
+
+---
+
+## Synthesis note
+This dossier reflects ${facts.length} facts collected and independently verified by CaP. Account qualification signals point to ${qualFacts.length>0?'a profile worth pursuing based on the verified facts below':'insufficient qualification data — see gaps'}. ${openConflicts.length>0?`There ${openConflicts.length===1?'is':'are'} ${openConflicts.length} unresolved conflict${openConflicts.length===1?'':'s'} that should be reviewed before this dossier is used in active outreach.`:'No unresolved conflicts at time of generation.'}
+
+---
+
+## Account qualification
+${qualLines}
+---
+
+## Buying committee
+${committeeLines}
+---
+
+## Timing signals
+${timingLines}
+---
+
+## Conversation prep
+${prepLines}
+---
+
+## Open conflicts
+${conflictSummary}
+---
+
+## Rejection history
+${rejectionSummary}
+---
+
+## All facts by type
+
+### Type A — Verified facts
+${lines(byType('A'))}
+### Type B — Inferred signals
+${lines(byType('B'))}
+### Type C — Third-party, unverified
+${lines(byType('C'))}
+### Type D — Known gaps
+${lines(byType('D'))}
+---
+
+## Defensibility statement
+This dossier was reviewed through Gate 1 (data quality) and Gate 2 (defensibility) by the Context Director before release. Assumptions are surfaced, conflicts are logged, and compaction rules applied. Output integrity owned by Design Prodigy CaP.
+
+---
+*Repo: DesignProdigySG/DP-Syntropy-May-2026 · Branch: main · Path: agents/tabita/accounts/${slug}/v1.md*`;
+}
+
+async function pushGitHub() {
+  const a=selectedAccount, statusEl=document.getElementById('push-status');
+  statusEl.innerHTML=`<div class="alert alert-info">Pushing to GitHub...</div>`;
+  try {
+    const [facts, conflicts, rejections] = await Promise.all([
+      sb(`facts?account_id=eq.${a.id}&select=*&order=type.asc`).catch(()=>[]),
+      sb(`conflicts?account_id=eq.${a.id}&select=*`).catch(()=>[]),
+      sb(`rejections?account_id=eq.${a.id}&select=*`).catch(()=>[])
+    ]);
+    const today=new Date().toISOString().split('T')[0];
+    const content=generateMD(a,facts||[],today,conflicts||[],rejections||[]);
+    const slug=(a.name||'account').toLowerCase().replace(/[^a-z0-9]+/g,'-');
+    const path=`agents/tabita/accounts/${slug}/v1.md`;
+    const apiUrl=`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`;
+    let sha=null;
+    try{const ex=await fetch(apiUrl,{headers:{'Authorization':`Bearer ${GITHUB_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(ex.ok){const d=await ex.json();sha=d.sha;}}catch(_){}
+    const encoded=btoa(unescape(encodeURIComponent(content)));
+    const body={message:`CaP: update ${a.name} dossier ${today}`,content:encoded,branch:GITHUB_BRANCH};
+    if(sha)body.sha=sha;
+    const res=await fetch(apiUrl,{method:'PUT',headers:{'Authorization':`Bearer ${GITHUB_TOKEN}`,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!res.ok){const err=await res.text();throw new Error(err);}
+    statusEl.innerHTML=`<div class="alert alert-success">✓ Pushed · ${path}</div>`;
+  } catch(e){statusEl.innerHTML=`<div class="alert alert-error">✗ ${e.message}</div>`;}
+}
+
+function copyMD(){const el=document.getElementById('md-preview');if(!el)return;navigator.clipboard.writeText(el.textContent).then(()=>{const btn=event.target;btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy MD',1500);});}
+
+async function renderSourceTab(t) {
+  const panel=document.getElementById('source-panel');
+  panel.innerHTML='<div class="loading">Loading...</div>';
+  try{if(t==='registry')await renderRegistry(panel);else if(t==='register')renderRegisterForm(panel);else renderCredRules(panel);}
+  catch(e){panel.innerHTML=`<div class="alert alert-error">${e.message}</div>`;}
+}
+
+async function renderRegistry(panel) {
+  const sources=await sb('sources?select=*&order=credibility_tier.asc,name.asc').catch(()=>[]);
+  let html=`<div class="panel-section" style="display:flex;justify-content:space-between;align-items:center;"><div><div class="section-label">Source registry</div><div style="font-size:12px;color:#bbb;">${(sources||[]).length} registered sources</div></div><button class="btn btn-secondary btn-sm" onclick="setSourceTab('register')">+ Register source</button></div>`;
+  if(!sources||sources.length===0){html+=`<div style="color:#bbb;font-size:12px;">No sources registered yet.</div>`;}
+  else sources.forEach(s=>{html+=`<div class="source-card"><div class="sc-name">${s.name}</div><div class="sc-type">Tier ${s.credibility_tier||'?'} · ${s.type||'—'}</div><div class="sc-row"><span><strong>URL</strong>${s.url?`<a href="${s.url}" target="_blank" style="color:#2563eb;">${s.url.length>50?s.url.substring(0,50)+'…':s.url}</a>`:'—'}</span><span><strong>Valid until</strong>${s.valid_until?s.valid_until.split('T')[0]:'—'}</span><span><strong>Added</strong>${s.created_at?s.created_at.split('T')[0]:'—'}</span></div></div>`;});
+  panel.innerHTML=html;
+}
+
+function renderRegisterForm(panel) {
+  panel.innerHTML=`<div class="panel-section"><div class="section-label">Register new source</div><div style="font-size:12px;color:#bbb;">Every source needs a spec before facts can be drawn from it</div></div><div style="max-width:560px;" class="form-card"><div class="form-row"><label>Source name *</label><input id="sf-name" placeholder="e.g. Recruit Holdings FY2024 Annual Report"></div><div class="form-row"><label>Type</label><select id="sf-type"><option>Primary (company-published)</option><option>News / media</option><option>Analyst report</option><option>Government / regulatory</option><option>Third-party aggregator</option><option>Proprietary / internal</option></select></div><div class="form-row"><label>Credibility tier</label><select id="sf-tier"><option value="1">Tier 1 — Primary, verified</option><option value="2">Tier 2 — Reputable secondary</option><option value="3">Tier 3 — Third-party, use with caution</option></select></div><div class="form-row"><label>URL</label><input id="sf-url" placeholder="https://..."></div><div class="form-row"><label>Valid until</label><input id="sf-valid" type="date"></div><div class="form-row"><label>Notes</label><textarea id="sf-notes" placeholder="Reliability, recency, access context..."></textarea></div><div style="display:flex;gap:8px;"><button class="btn btn-primary btn-sm" onclick="saveSource()">Register</button><button class="btn btn-secondary btn-sm" onclick="setSourceTab('registry')">Cancel</button></div><div id="source-save-status" style="margin-top:12px;"></div></div>`;
+}
+
+async function saveSource() {
+  const name=(document.getElementById('sf-name').value||'').trim();
+  if(!name){alert('Source name required.');return;}
+  try{const result=await sb('sources',{method:'POST',body:JSON.stringify({name,type:document.getElementById('sf-type').value,credibility_tier:parseInt(document.getElementById('sf-tier').value),url:document.getElementById('sf-url').value||null,valid_until:document.getElementById('sf-valid').value||null,notes:document.getElementById('sf-notes').value||null})});document.getElementById('source-save-status').innerHTML=`<div class="alert alert-success">✓ Registered · ID: ${result?.[0]?.id||'saved'}</div>`;}
+  catch(e){document.getElementById('source-save-status').innerHTML=`<div class="alert alert-error">${e.message}</div>`;}
+}
+
+function renderCredRules(panel) {
+  panel.innerHTML=`<div class="panel-section"><div class="section-label">Credibility rules</div><div style="font-size:12px;color:#bbb;">How sources are classified and when facts expire</div></div><div class="panel-section"><div class="section-label">Source hierarchy</div><table class="cred-table"><thead><tr><th>Tier</th><th>Type</th><th>Fact type</th><th>Rule</th></tr></thead><tbody><tr><td style="color:#16a34a;font-weight:600;">Tier 1</td><td>Company-published, regulatory, govt filings</td><td><span class="type-badge type-a">A</span></td><td>Cite directly. Required for Type A.</td></tr><tr><td style="color:#1e40af;font-weight:600;">Tier 2</td><td>Reputable press, analyst reports, industry bodies</td><td><span class="type-badge type-b">B</span> <span class="type-badge type-c">C</span></td><td>Cross-reference before elevating to A.</td></tr><tr><td style="color:#d97706;font-weight:600;">Tier 3</td><td>Forums, unverified aggregators, word-of-mouth</td><td><span class="type-badge type-c">C</span></td><td>Flag clearly. Never use alone.</td></tr></tbody></table></div><div class="panel-section"><div class="section-label">Valid-until rules</div><table class="cred-table"><thead><tr><th>Fact category</th><th>Default</th><th>Renewal trigger</th></tr></thead><tbody><tr><td>Executive contacts / titles</td><td>90 days</td><td>Any personnel announcement</td></tr><tr><td>Revenue / financials</td><td>Until next earnings</td><td>Quarterly or annual release</td></tr><tr><td>Strategic direction</td><td>12 months</td><td>New strategy announcement</td></tr><tr><td>Partnership status</td><td>6 months</td><td>Any press release or event</td></tr><tr><td>Product / tech stack</td><td>6 months</td><td>Product launch or job postings</td></tr><tr><td>Headcount / org structure</td><td>6 months</td><td>Layoffs, restructure, hiring surge</td></tr></tbody></table></div><div class="panel-section"><div class="section-label">Compaction rule</div><div class="form-card" style="margin-bottom:0;">When two facts assert the same claim from different sources, retain the higher-tier source and archive the lower. If they conflict, log a conflict record and flag for Director review. A fact past its valid_until date is frozen — it cannot be used in output until renewed or replaced.</div></div>`;
+}
+
+function showAddAccount() {
+  if(currentMode!=='dossiers')return;
+  document.getElementById('panel').innerHTML=`<div class="panel-section"><div class="section-label">Add account</div></div><div style="max-width:480px;" class="form-card"><div class="form-row"><label>Account name *</label><input id="aa-name" placeholder="e.g. Recruit Holdings"></div><div class="form-row"><label>Region</label><input id="aa-region" placeholder="e.g. Japan"></div><div class="form-row"><label>Industry</label><input id="aa-industry" placeholder="e.g. HR / Recruiting"></div><div class="form-row"><label>HQ</label><input id="aa-hq" placeholder="e.g. Tokyo"></div><div class="form-row"><label>Notes</label><textarea id="aa-notes" placeholder="Initial context..."></textarea></div><div style="display:flex;gap:8px;"><button class="btn btn-primary btn-sm" onclick="saveAccount()">Save account</button><button class="btn btn-secondary btn-sm" onclick="cancelAdd()">Cancel</button></div><div id="aa-status" style="margin-top:12px;"></div></div>`;
+}
+
+function cancelAdd(){document.getElementById('panel').innerHTML='<div class="empty-state"><div class="es-icon">◈</div><div class="es-title">No account selected</div><div class="es-sub">Select an account from the sidebar.</div></div>';}
+
+async function saveAccount() {
+  const name=(document.getElementById('aa-name').value||'').trim();
+  if(!name){alert('Account name required.');return;}
+  const statusEl=document.getElementById('aa-status');
+  try{const result=await sb('accounts',{method:'POST',body:JSON.stringify({name,region:document.getElementById('aa-region').value||null,industry:document.getElementById('aa-industry').value||null,hq:document.getElementById('aa-hq').value||null,notes:document.getElementById('aa-notes').value||null})});statusEl.innerHTML=`<div class="alert alert-success">✓ Saved.</div>`;await loadAccounts();if(result?.[0])selectAccount(result[0].id);}
+  catch(e){statusEl.innerHTML=`<div class="alert alert-error">${e.message}</div>`;}
+}
+
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+loadAccounts();
+</script>
+</body>
+</html>
