@@ -168,11 +168,13 @@
 </div>
 
 <script>
-const SUPABASE_URL  = 'https://buknaajuolfkvcpepbaf.supabase.co';
-const SUPABASE_KEY  = 'SUPABASE_KEY_PLACEHOLDER'; // REDACTED — replace with your new publishable key once the app is migrated to env vars. See CLAUDE.md.
-const GITHUB_TOKEN  = 'GITHUB_TOKEN_PLACEHOLDER'; // REDACTED — original token deleted on GitHub. Real value belongs in an env var, not here. See CLAUDE.md.
-const GITHUB_REPO   = 'DesignProdigySG/DP-Syntropy-May-2026';
-const GITHUB_BRANCH = 'main';
+// Publishable key: safe to embed (Supabase's own design intent for this key
+// type) — it only authenticates calls to CaP's own proxy functions below.
+// It is never sent to PostgREST or GitHub directly. Real DB/GitHub secrets
+// live server-side as env vars in the Supabase Edge Functions in /supabase/functions.
+const SUPABASE_PUBLISHABLE_KEY = 'SUPABASE_PUBLISHABLE_KEY_PLACEHOLDER'; // fill in your sb_publishable_... key
+const DB_PROXY_URL     = 'https://buknaajuolfkvcpepbaf.supabase.co/functions/v1/db-proxy';
+const GITHUB_PROXY_URL = 'https://buknaajuolfkvcpepbaf.supabase.co/functions/v1/github-push';
 
 // ── CONFIDENCE MODEL ──────────────────────────────────────────────────────────
 // Step 1: Type sets starting confidence at intake
@@ -233,8 +235,8 @@ function freshnessBadge(fact) {
 }
 
 const sb = async (path, opts = {}) => {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=representation', ...opts.headers },
+  const res = await fetch(`${DB_PROXY_URL}/${path}`, {
+    headers: { 'apikey': SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json', ...opts.headers },
     ...opts
   });
   if (!res.ok) { const e = await res.text(); throw new Error(e); }
@@ -1337,13 +1339,7 @@ async function pushGitHub() {
     const content=generateMD(a,facts||[],today,conflicts||[],rejections||[]);
     const slug=(a.name||'account').toLowerCase().replace(/[^a-z0-9]+/g,'-');
     const path=`agents/tabita/accounts/${slug}/v1.md`;
-    const apiUrl=`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`;
-    let sha=null;
-    try{const ex=await fetch(apiUrl,{headers:{'Authorization':`Bearer ${GITHUB_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(ex.ok){const d=await ex.json();sha=d.sha;}}catch(_){}
-    const encoded=btoa(unescape(encodeURIComponent(content)));
-    const body={message:`CaP: update ${a.name} dossier ${today}`,content:encoded,branch:GITHUB_BRANCH};
-    if(sha)body.sha=sha;
-    const res=await fetch(apiUrl,{method:'PUT',headers:{'Authorization':`Bearer ${GITHUB_TOKEN}`,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},body:JSON.stringify(body)});
+    const res=await fetch(GITHUB_PROXY_URL,{method:'POST',headers:{'apikey':SUPABASE_PUBLISHABLE_KEY,'Content-Type':'application/json'},body:JSON.stringify({path,content,message:`CaP: update ${a.name} dossier ${today}`})});
     if(!res.ok){const err=await res.text();throw new Error(err);}
     statusEl.innerHTML=`<div class="alert alert-success">✓ Pushed · ${path}</div>`;
   } catch(e){statusEl.innerHTML=`<div class="alert alert-error">✗ ${e.message}</div>`;}
