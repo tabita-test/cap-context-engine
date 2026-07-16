@@ -1,0 +1,5 @@
+[functions.db-proxy]
+verify_jwt = false
+
+[functions.github-push]
+verify_jwt = false
