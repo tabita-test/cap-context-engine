@@ -446,6 +446,17 @@ const GAP_SPEC = {
   ]
 };
 
+// Sales rep rejection reason → schema rejection_type/routed_to (SUPABASE_SCHEMA_REFERENCE.md)
+const REJECTION_ROUTING = {
+  'Wrong / inaccurate':                        { rejection_type: 'Incorrect information', routed_to: 'source' },
+  'Outdated':                                  { rejection_type: 'Stale fact',            routed_to: 'source' },
+  'Misinterpreted signal':                     { rejection_type: 'Incorrect information', routed_to: 'source' },
+  'Wrong category for this fact':              { rejection_type: 'Incorrect information', routed_to: 'source' },
+  "Doesn't fit our approach for this account": { rejection_type: 'Wrong approach',        routed_to: 'engine_logic' },
+  'Duplicate':                                 { rejection_type: 'Incorrect information', routed_to: 'source' },
+  'Wrong account / wrong entity':               { rejection_type: 'Wrong contact',         routed_to: 'source' }
+};
+
 async function runGapCheck(accountId) {
   try {
     const facts = await sb(`facts?account_id=eq.${accountId}&select=*`);
@@ -705,13 +716,11 @@ async function runDeconfliction(accountId) {
               const diff = Math.abs(maxA - maxB) / Math.max(maxA, maxB);
 
               if (diff > 0.05) { // >5% difference = flag
-                // Determine trusted fact by confidence
+                // Determine trusted fact by confidence (Rule 3 — a starting point for review, not a resolution)
                 const confA = a.confidence||0, confB = b.confidence||0;
                 const trusted = confA >= confB ? a : b;
-                const confGap = Math.abs(confA - confB);
+                const other = trusted.id===a.id ? b : a;
                 const level = diff > 0.2 ? 'HIGH' : 'MEDIUM';
-                // Auto-resolve when confidence clearly favors one fact (10+ point gap). Otherwise leave open for a human call.
-                const canAutoResolve = confGap >= 10;
 
                 conflictsFound.push({
                   account_id: accountId,
@@ -719,12 +728,10 @@ async function runDeconfliction(accountId) {
                   fact_b: b.id,
                   level,
                   trusted_fact: trusted.id,
-                  resolution_condition: canAutoResolve
-                    ? `Auto-resolved — ${trusted.confidence}% vs ${(trusted.id===a.id?b:a).confidence}% confidence, clear enough to decide automatically`
-                    : `Confidence too close to call (${confA}% vs ${confB}%) — needs a human decision`,
-                  status: canAutoResolve ? 'resolved' : 'open',
-                  resolved_by: canAutoResolve ? 'CaP (auto)' : null,
-                  resolved_date: canAutoResolve ? new Date().toISOString().split('T')[0] : null,
+                  resolution_condition: `Needs Context Director review — ${trusted.confidence}% vs ${other.confidence}% confidence; higher-confidence fact suggested as trusted, not auto-applied`,
+                  status: 'open',
+                  resolved_by: null,
+                  resolved_date: null,
                   notes: `Both facts reference "${sharedKeyword}" in category "${category}" but assert different numeric values (${maxA} vs ${maxB})`
                 });
               }
@@ -747,20 +754,16 @@ async function runDeconfliction(accountId) {
             if (!conflictsFound.find(c => c.fact_a === a.id && c.fact_b === b.id)) {
               const confA = a.confidence||0, confB = b.confidence||0;
               const trusted = confA >= confB ? a : b;
-              const confGap = Math.abs(confA - confB);
-              const canAutoResolve = confGap >= 10;
               conflictsFound.push({
                 account_id: accountId,
                 fact_a: a.id,
                 fact_b: b.id,
                 level: 'LOW',
                 trusted_fact: trusted.id,
-                resolution_condition: canAutoResolve
-                  ? `Auto-resolved as duplicate — kept the ${trusted.confidence}% confidence version`
-                  : `Confidence too close to call (${confA}% vs ${confB}%) — needs a human decision on which to keep`,
-                status: canAutoResolve ? 'resolved' : 'open',
-                resolved_by: canAutoResolve ? 'CaP (auto)' : null,
-                resolved_date: canAutoResolve ? new Date().toISOString().split('T')[0] : null,
+                resolution_condition: `Needs Context Director review — possible duplicate; ${trusted.confidence}% confidence version suggested to keep, not auto-applied`,
+                status: 'open',
+                resolved_by: null,
+                resolved_date: null,
                 notes: `High content similarity (${Math.round(similarity*100)}%) detected in category "${category}" — possible duplicate`
               });
             }
@@ -1020,7 +1023,7 @@ async function renderSalesRep(panel) {
         <div id="reject-form-${f.id}" style="display:none;padding:14px 16px;background:#fff1f2;border-top:1px solid #fecaca;">
           <div style="font-size:11px;font-weight:600;color:#991b1b;margin-bottom:8px;">Why should this be rejected?</div>
           <div style="display:flex;flex-direction:column;gap:6px;">
-            ${['Wrong / inaccurate','Outdated','Misinterpreted signal','Not relevant to our solution','Duplicate','Wrong account / wrong entity'].map(r=>`
+            ${['Wrong / inaccurate','Outdated','Misinterpreted signal','Wrong category for this fact',"Doesn't fit our approach for this account",'Duplicate','Wrong account / wrong entity'].map(r=>`
               <button class="btn btn-sm" style="background:#fff;color:#333;border:1px solid #fecaca;text-align:left;" onclick="submitRepRejection('${f.id}','${r}')">${r}</button>`).join('')}
           </div>
         </div>
@@ -1105,16 +1108,17 @@ async function saveRepEdit(factId) {
 
 async function submitRepRejection(factId, reason) {
   try {
+    const routing = REJECTION_ROUTING[reason];
     await sb('rejections', {
       method: 'POST',
       body: JSON.stringify({
         id: crypto.randomUUID(),
         fact_id: factId,
         account_id: selectedAccount.id,
-        rejection_type: 'bad_data_quality',
+        rejection_type: routing.rejection_type,
         rejected_by: 'sales_rep',
         rejection_date: new Date().toISOString().split('T')[0],
-        routed_to: 'cap',
+        routed_to: routing.routed_to,
         resolved: true,
         notes: reason
       })
