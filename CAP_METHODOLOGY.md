@@ -23,7 +23,7 @@ CaP does not optimize for volume of data or speed of output. It optimizes for de
 
 CaP does not dump data. The rule: only put information into context files if you know exactly why it is there and how it will be used. This is enforced structurally — every fact requires an `intended_use` classification before it can be saved (account_qualification, buying_committee_mapping, conversation_prep, gap_identification, timing_signal). If a piece of information doesn't cleanly map to one of these, it shouldn't be in the system yet.
 
-The name "80% rule" reflects the threshold: facts at 80% confidence or above are treated as reliable enough to use without human re-confirmation. Below 80%, a human (sales rep or Context Director) must confirm, edit, or reject before the fact is trusted.
+Confidence-based review is a separate mechanism from this rule — see "Fact lifecycle" below for the tiered review thresholds.
 
 ## Fact lifecycle
 
@@ -32,10 +32,11 @@ Every fact moves through stages:
 1. **Collection** — an agent or human ingests a raw signal from a source
 2. **Classification** — assigned Type A (verified from named source), B (inferred), C (third-party unverified), or D (known gap)
 3. **Confidence scoring** — 0–100, reflecting how certain CaP is in the fact's accuracy
-4. **Human gate (if confidence < 80%)** — sales rep or Context Director confirms, edits, or rejects
+4. **Sales rep review (if confidence < threshold for intended_use)** — 85% for buying_committee_mapping and conversation_prep, 75% for account_qualification and timing_signal; sales rep or Context Director confirms, edits, or rejects
 5. **Deconfliction** — checked against other facts for contradictions, duplicates, or staleness
-6. **Director Gate 2** — Context Director reviews defensibility status before release
-7. **Output** — compiled into the orientation artifact (.md file) and pushed to the shared repo
+6. **Gate 1 (data quality)** — Context Director checklist verifying structural completeness: sources named, valid_until dates set, no duplicates, gaps logged
+7. **Gate 2 (defensibility)** — Context Director reviews defensibility status before release
+8. **Output** — compiled into the orientation artifact (.md file) and pushed to the shared repo
 
 A fact that is rejected does not loop back into the queue. Rejection is final and logged in the rejection history.
 
