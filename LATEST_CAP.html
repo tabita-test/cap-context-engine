@@ -1513,7 +1513,7 @@ async function renderRegistry(panel) {
   if(!sources||sources.length===0){html+=`<div style="color:#bbb;font-size:12px;">No sources registered yet.</div>`;}
   else sources.forEach(s=>{
     const account = accounts.find(a=>a.id===s.account_id);
-    html+=`<div class="source-card"><div class="sc-name">${s.name}</div><div class="sc-type">Tier ${s.credibility_tier||'?'} · ${s.type||'—'} · ${account?account.name:'Unknown account'}</div><div class="sc-row"><span><strong>URL</strong>${s.url?`<a href="${s.url}" target="_blank" style="color:#2563eb;">${s.url.length>50?s.url.substring(0,50)+'…':s.url}</a>`:'—'}</span><span><strong>Valid until</strong>${s.valid_until?s.valid_until.split('T')[0]:'—'}</span><span><strong>Added</strong>${s.created_at?s.created_at.split('T')[0]:'—'}</span></div></div>`;
+    html+=`<div class="source-card"><div class="sc-name">${s.name}</div><div class="sc-type">Tier ${s.credibility_tier||'?'} · ${account?account.name:'Unknown account'}</div><div class="sc-row"><span><strong>URL</strong>${s.url?`<a href="${s.url}" target="_blank" style="color:#2563eb;">${s.url.length>50?s.url.substring(0,50)+'…':s.url}</a>`:'—'}</span><span><strong>Valid until</strong>${s.valid_until?s.valid_until.split('T')[0]:'—'}</span><span><strong>Added</strong>${s.created_at?s.created_at.split('T')[0]:'—'}</span></div></div>`;
   });
   panel.innerHTML=html;
 }
