@@ -564,7 +564,6 @@ function sourceFormFieldsHTML(idPrefix, includeAccountPicker) {
   return `
     <div class="form-row"><label>Source name *</label><input id="${idPrefix}-name" placeholder="e.g. Recruit Holdings FY2024 Annual Report"></div>
     ${accountPickerHTML}
-    <div class="form-row"><label>Type</label><select id="${idPrefix}-type"><option>Primary (company-published)</option><option>News / media</option><option>Analyst report</option><option>Government / regulatory</option><option>Third-party aggregator</option><option>Proprietary / internal</option></select></div>
     <div class="form-row"><label>Credibility tier</label><select id="${idPrefix}-tier"><option value="1">Tier 1 — Primary, verified</option><option value="2">Tier 2 — Reputable secondary</option><option value="3">Tier 3 — Third-party, use with caution</option></select></div>
     <div class="form-row"><label>Category</label><select id="${idPrefix}-category" onchange="applyCategoryDefault('${idPrefix}')"><option value="">— select category —</option>${categoryOptions}</select></div>
     <div class="form-row"><label>Valid until</label><input id="${idPrefix}-valid" type="date"><div id="${idPrefix}-valid-hint" style="display:none;font-size:11px;color:#d97706;margin-top:4px;">No auto-default for this category — enter the next earnings date manually.</div></div>
@@ -583,7 +582,12 @@ async function registerSource(idPrefix, fallbackAccountId) {
     id: crypto.randomUUID(),
     account_id,
     name,
-    type: document.getElementById(`${idPrefix}-type`).value,
+    // sources.type has a DB check constraint of 'agent'|'crawl'|'rep'|'engine' — it tracks how the row was
+    // captured, not what kind of publication it is. Every source registered through this form is entered by
+    // a human, so this is always 'rep'. The day an automated crawler/agent writes to this table directly
+    // (see CaP_Docs_vs_Code_Audit.md's crawl-provenance gap — sources.source_id/registry linkage is unused/
+    // unbuilt), that path should set 'agent' or 'crawl' here instead.
+    type: 'rep',
     credibility_tier: parseInt(document.getElementById(`${idPrefix}-tier`).value),
     url: document.getElementById(`${idPrefix}-url`).value || null,
     valid_until: document.getElementById(`${idPrefix}-valid`).value || null,
