@@ -234,6 +234,13 @@ function freshnessBadge(fact) {
   return ''; // Fresh = no badge, date alone is enough
 }
 
+// Resolves a fact's source for display: linked source_id first, falling back to legacy free-text notes
+// (pre-dating source_id) so older facts don't regress. No backfill — this is display-only.
+function factSourceLabel(fact, sourcesById) {
+  if (fact.source_id && sourcesById[fact.source_id]) return sourcesById[fact.source_id].name;
+  return fact.notes || null;
+}
+
 const sb = async (path, opts = {}) => {
   const res = await fetch(`${DB_PROXY_URL}/${path}`, {
     headers: { 'apikey': SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json', ...opts.headers },
@@ -244,7 +251,7 @@ const sb = async (path, opts = {}) => {
 };
 
 let currentMode = 'dossiers', currentTab = 'overview', currentSourceTab = 'registry';
-let selectedAccount = null, accounts = [];
+let selectedAccount = null, accounts = [], currentSources = [];
 
 function setMode(m) {
   currentMode = m;
@@ -356,9 +363,21 @@ async function renderOverview(panel) {
     </div>`;
 }
 
+function sourcesById(sources) {
+  const map = {};
+  (sources||[]).forEach(s => { map[s.id] = s; });
+  return map;
+}
+
 async function renderFacts(panel) {
   const a = selectedAccount;
-  const facts = await sb(`facts?account_id=eq.${a.id}&select=*&order=type.asc`).catch(()=>[]);
+  const [facts, sources] = await Promise.all([
+    sb(`facts?account_id=eq.${a.id}&select=*&order=type.asc`).catch(()=>[]),
+    sb(`sources?account_id=eq.${a.id}&select=*&order=name.asc`).catch(()=>[])
+  ]);
+  currentSources = sources||[];
+  const byId = sourcesById(currentSources);
+  const sourceOptionsHTML = currentSources.map(s=>`<option value="${s.id}">${s.name} — Tier ${s.credibility_tier}</option>`).join('');
   let html = `
     <div class="panel-section" style="display:flex;justify-content:space-between;align-items:center;">
       <div><div class="section-label">Fact ledger · ${a.name}</div><div style="font-size:12px;color:#bbb;">${(facts||[]).length} facts</div></div>
@@ -369,7 +388,10 @@ async function renderFacts(panel) {
       <div class="section-label" style="margin-bottom:12px;">New fact</div>
       <div class="form-row"><label>Type</label><select id="ff-type" onchange="document.getElementById('ff-confidence').value=({A:95,B:70,C:55}[this.value]||'');document.getElementById('ff-confidence').style.color='#aaa';"><option value="A">A — Verified from named source</option><option value="B">B — Inferred</option><option value="C">C — Third-party, unverified</option><option value="D">D — Known gap</option></select></div>
       <div class="form-row"><label>Content *</label><textarea id="ff-claim" placeholder="State the fact plainly..."></textarea></div>
-      <div class="form-row"><label>Source / Notes</label><input id="ff-source" placeholder="Source name + URL"></div>
+      <div class="form-row"><label>Source * <span style="text-transform:none;font-weight:400;color:#ccc;">(not required for Type D gaps)</span></label>
+        <select id="ff-source-select" onchange="handleFfSourceChange()"><option value="">— select a source —</option>${sourceOptionsHTML}<option value="__new__">+ Register new source</option></select>
+        <div id="ff-inline-source-form" style="display:none;margin-top:10px;padding:12px;background:#fafafa;border:1px solid #e5e5e5;border-radius:6px;">${sourceFormFieldsHTML('iff', false)}<div style="display:flex;gap:8px;"><button type="button" class="btn btn-primary btn-sm" onclick="saveInlineSource()">Register source</button><button type="button" class="btn btn-secondary btn-sm" onclick="cancelInlineSource()">Cancel</button></div><div id="iff-status" style="margin-top:8px;"></div></div>
+      </div>
       <div class="form-row"><label>Intended use *</label><select id="ff-intended-use"><option value="">— select —</option><option value="account_qualification">Account qualification</option><option value="buying_committee_mapping">Buying committee mapping</option><option value="conversation_prep">Conversation prep</option><option value="gap_identification">Gap identification</option><option value="timing_signal">Timing signal</option></select></div>
       <div class="form-row"><label>Valid until</label><input id="ff-valid" type="date"></div>
       <div class="form-row"><label>Confidence (0–100) — leave blank if unknown</label><input id="ff-confidence" type="number" min="0" max="100" placeholder="e.g. 85 · facts below 80 will appear in sales rep review"></div>
@@ -392,7 +414,7 @@ async function renderFacts(panel) {
       html += `<tr>
         <td><span class="type-badge type-${(f.type||'d').toLowerCase()}">${f.type||'?'}</span></td>
         <td>${f.content||'—'}${review ? ' <span style="font-size:10px;color:#d97706;font-weight:600;">· needs review</span>' : ''}</td>
-        <td style="color:#888;font-size:11px;">${f.notes||'—'}</td>
+        <td style="color:#888;font-size:11px;">${factSourceLabel(f, byId)||'—'}</td>
         <td style="color:#888;font-size:11px;">${(f.intended_use||'—').replace(/_/g,' ')}</td>
         <td style="color:#888;font-size:11px;white-space:nowrap;">${f.valid_until?f.valid_until.split('T')[0]:'—'}${freshnessBadge(f)}</td>
         <td style="font-size:12px;font-weight:600;color:${confColor};">${confLabel}</td>
@@ -405,18 +427,51 @@ async function renderFacts(panel) {
 
 function toggleAddFact() { const el=document.getElementById('add-fact-form'); if(el) el.style.display=el.style.display==='none'?'block':'none'; }
 
+function handleFfSourceChange() {
+  const val = document.getElementById('ff-source-select').value;
+  document.getElementById('ff-inline-source-form').style.display = val==='__new__' ? 'block' : 'none';
+}
+
+function cancelInlineSource() {
+  document.getElementById('ff-inline-source-form').style.display = 'none';
+  document.getElementById('ff-source-select').value = '';
+}
+
+async function saveInlineSource() {
+  try {
+    const saved = await registerSource('iff', selectedAccount.id);
+    currentSources.push(saved);
+    const select = document.getElementById('ff-source-select');
+    select.insertAdjacentHTML('beforeend', `<option value="${saved.id}">${saved.name} — Tier ${saved.credibility_tier}</option>`);
+    select.value = saved.id;
+    document.getElementById('ff-inline-source-form').style.display = 'none';
+  } catch(e) { document.getElementById('iff-status').innerHTML = `<div class="alert alert-error">${e.message}</div>`; }
+}
+
 async function saveFact() {
   const content=(document.getElementById('ff-claim').value||'').trim();
   if(!content){alert('Content required.');return;}
+  const statusEl = document.getElementById('fact-save-status');
+  const type = document.getElementById('ff-type').value;
+  const sourceId = document.getElementById('ff-source-select').value;
+  let source = null;
+  if (type !== 'D') {
+    if (!sourceId || sourceId === '__new__') { statusEl.innerHTML = `<div class="alert alert-error">Type ${type} facts require a linked source.</div>`; return; }
+    source = currentSources.find(s => s.id === sourceId);
+    const allowedTiers = TYPE_TIER_RULES[type] || [];
+    if (!source || !allowedTiers.includes(source.credibility_tier)) {
+      statusEl.innerHTML = `<div class="alert alert-error">Type ${type} facts require a Tier ${allowedTiers.join('/')} source — the selected source is Tier ${source?source.credibility_tier:'?'}. Choose a different source or a different fact type.</div>`;
+      return;
+    }
+  }
   try {
-    const type = document.getElementById('ff-type').value;
     const confVal = document.getElementById('ff-confidence').value;
     const confidence = confVal !== '' ? parseInt(confVal) : (TYPE_CONFIDENCE[type] || null);
-    await sb('facts',{method:'POST',body:JSON.stringify({account_id:selectedAccount.id,type,content,notes:document.getElementById('ff-source').value||null,valid_until:document.getElementById('ff-valid').value||null,confidence,intended_use:document.getElementById('ff-intended-use').value||null})});
+    await sb('facts',{method:'POST',body:JSON.stringify({account_id:selectedAccount.id,type,content,source_id:source?source.id:null,notes:null,valid_until:document.getElementById('ff-valid').value||null,confidence,intended_use:document.getElementById('ff-intended-use').value||null})});
     // Auto-run gap check after every new fact
     await runGapCheck(selectedAccount.id);
     await renderTab('facts');
-  } catch(e) { document.getElementById('fact-save-status').innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
+  } catch(e) { statusEl.innerHTML=`<div class="alert alert-error">${e.message}</div>`; }
 }
 
 // ── GAP CHECK ─────────────────────────────────────────────────────────────────
@@ -456,6 +511,87 @@ const REJECTION_ROUTING = {
   'Duplicate':                                 { rejection_type: 'Incorrect information', routed_to: 'source' },
   'Wrong account / wrong entity':               { rejection_type: 'Wrong contact',         routed_to: 'source' }
 };
+
+// Source registration: category-driven valid_until suggestion (SOURCE_QA_STANDARDS.md defaults)
+const CATEGORY_VALID_UNTIL = {
+  'Executive contacts / titles': { days: 90 },
+  'Revenue / financials':        { placeholder: 'enter next earnings date' },
+  'Strategic direction':         { months: 12 },
+  'Partnership status':          { months: 6 },
+  'Product / tech stack':        { months: 6 },
+  'Headcount / org structure':   { months: 6 }
+};
+
+function suggestValidUntil(category) {
+  const spec = CATEGORY_VALID_UNTIL[category];
+  if (!spec || spec.placeholder) return null;
+  const d = new Date();
+  if (spec.days) d.setDate(d.getDate() + spec.days);
+  if (spec.months) d.setMonth(d.getMonth() + spec.months);
+  return d.toISOString().split('T')[0];
+}
+
+function applyCategoryDefault(idPrefix) {
+  const category = document.getElementById(`${idPrefix}-category`).value;
+  const validInput = document.getElementById(`${idPrefix}-valid`);
+  const hint = document.getElementById(`${idPrefix}-valid-hint`);
+  const spec = CATEGORY_VALID_UNTIL[category];
+  const suggested = suggestValidUntil(category);
+  if (suggested) {
+    validInput.value = suggested;
+    validInput.placeholder = '';
+    hint.style.display = 'none';
+  } else if (spec && spec.placeholder) {
+    validInput.value = '';
+    validInput.placeholder = spec.placeholder;
+    hint.style.display = 'block';
+  } else {
+    validInput.placeholder = '';
+    hint.style.display = 'none';
+  }
+}
+
+// Which source credibility tiers can back which fact type (decisions: no Tier-2→A elevation, refuse at save time)
+const TYPE_TIER_RULES = { A: [1], B: [1, 2], C: [1, 2, 3] };
+
+// Shared source-form markup, used by the standalone Sources-tab register form and the inline fact-entry mini-form.
+// includeAccountPicker=true for the standalone form (no account context); false for inline (uses selectedAccount).
+function sourceFormFieldsHTML(idPrefix, includeAccountPicker) {
+  const accountPickerHTML = includeAccountPicker
+    ? `<div class="form-row"><label>Account *</label><select id="${idPrefix}-account"><option value="">— select account —</option>${accounts.map(a=>`<option value="${a.id}">${a.name}</option>`).join('')}</select></div>`
+    : '';
+  const categoryOptions = Object.keys(CATEGORY_VALID_UNTIL).map(c=>`<option>${c}</option>`).join('');
+  return `
+    <div class="form-row"><label>Source name *</label><input id="${idPrefix}-name" placeholder="e.g. Recruit Holdings FY2024 Annual Report"></div>
+    ${accountPickerHTML}
+    <div class="form-row"><label>Type</label><select id="${idPrefix}-type"><option>Primary (company-published)</option><option>News / media</option><option>Analyst report</option><option>Government / regulatory</option><option>Third-party aggregator</option><option>Proprietary / internal</option></select></div>
+    <div class="form-row"><label>Credibility tier</label><select id="${idPrefix}-tier"><option value="1">Tier 1 — Primary, verified</option><option value="2">Tier 2 — Reputable secondary</option><option value="3">Tier 3 — Third-party, use with caution</option></select></div>
+    <div class="form-row"><label>Category</label><select id="${idPrefix}-category" onchange="applyCategoryDefault('${idPrefix}')"><option value="">— select category —</option>${categoryOptions}</select></div>
+    <div class="form-row"><label>Valid until</label><input id="${idPrefix}-valid" type="date"><div id="${idPrefix}-valid-hint" style="display:none;font-size:11px;color:#d97706;margin-top:4px;">No auto-default for this category — enter the next earnings date manually.</div></div>
+    <div class="form-row"><label>URL</label><input id="${idPrefix}-url" placeholder="https://..."></div>
+    <div class="form-row"><label>Notes</label><textarea id="${idPrefix}-notes" placeholder="Reliability, recency, access context..."></textarea></div>`;
+}
+
+// Shared source-save logic. fallbackAccountId is used when the form has no account picker (inline flow).
+async function registerSource(idPrefix, fallbackAccountId) {
+  const name = (document.getElementById(`${idPrefix}-name`).value || '').trim();
+  if (!name) throw new Error('Source name required.');
+  const accountSelect = document.getElementById(`${idPrefix}-account`);
+  const account_id = accountSelect ? accountSelect.value : fallbackAccountId;
+  if (!account_id) throw new Error('Account required.');
+  const payload = {
+    id: crypto.randomUUID(),
+    account_id,
+    name,
+    type: document.getElementById(`${idPrefix}-type`).value,
+    credibility_tier: parseInt(document.getElementById(`${idPrefix}-tier`).value),
+    url: document.getElementById(`${idPrefix}-url`).value || null,
+    valid_until: document.getElementById(`${idPrefix}-valid`).value || null,
+    notes: document.getElementById(`${idPrefix}-notes`).value || null
+  };
+  const result = await sb('sources', { method: 'POST', body: JSON.stringify(payload) });
+  return result?.[0];
+}
 
 async function runGapCheck(accountId) {
   try {
@@ -509,12 +645,14 @@ async function renderIssues(panel) {
   // Auto-run gap check every time Issues tab opens
   await runGapCheck(a.id);
 
-  const [conflicts, typeD, rejections, allFacts] = await Promise.all([
+  const [conflicts, typeD, rejections, allFacts, issueSources] = await Promise.all([
     sb(`conflicts?account_id=eq.${a.id}&select=*&order=status.asc`).catch(()=>[]),
     sb(`facts?account_id=eq.${a.id}&type=eq.D&select=*`).catch(()=>[]),
     sb(`rejections?account_id=eq.${a.id}&select=*&order=rejection_date.desc`).catch(()=>[]),
-    sb(`facts?account_id=eq.${a.id}&select=*`).catch(()=>[])
+    sb(`facts?account_id=eq.${a.id}&select=*`).catch(()=>[]),
+    sb(`sources?account_id=eq.${a.id}&select=*`).catch(()=>[])
   ]);
+  const issueSourcesById = sourcesById(issueSources);
 
   const factLookup = {};
   (allFacts||[]).forEach(f => { factLookup[f.id] = f; });
@@ -571,7 +709,7 @@ async function renderIssues(panel) {
     const factBlock = (fact, isTrusted) => fact ? `
       <div style="font-size:11px;color:#333;margin-top:6px;padding:8px 10px;background:${isTrusted?'#f0fdf4':'#fafafa'};border-radius:4px;border-left:3px solid ${isTrusted?'#16a34a':'#ddd'};">
         ${isTrusted ? '<span style="color:#16a34a;font-weight:600;">✓ CaP trusts this — </span>' : ''}${fact.content}
-        <div style="font-size:10px;color:#aaa;margin-top:3px;">${fact.notes||'No source'} · ${fact.confidence!==null&&fact.confidence!==undefined?fact.confidence+'% confidence':'unscored'}</div>
+        <div style="font-size:10px;color:#aaa;margin-top:3px;">${factSourceLabel(fact, issueSourcesById)||'No source'} · ${fact.confidence!==null&&fact.confidence!==undefined?fact.confidence+'% confidence':'unscored'}</div>
       </div>` : '';
 
     const isAuto = c.resolved_by === 'CaP (auto)';
@@ -628,7 +766,7 @@ async function renderIssues(panel) {
           <button class="btn btn-sm" style="background:#fffbeb;color:#d97706;border:1px solid #fde68a;" onclick="reverifyFact('${f.id}')">Re-verify now</button>
         </div>
         <div class="ic-text" style="margin-top:6px;">${f.content}</div>
-        <div style="margin-top:4px;font-size:11px;color:#888;">${f.notes||'No source'} — frozen from output until re-verified</div>
+        <div style="margin-top:4px;font-size:11px;color:#888;">${factSourceLabel(f, issueSourcesById)||'No source'} — frozen from output until re-verified</div>
         <div id="reverify-status-${f.id}" style="margin-top:8px;"></div>
       </div>`;
     });
@@ -868,7 +1006,11 @@ async function removeFact(factId) {
 
 async function renderSalesRep(panel) {
   const a = selectedAccount;
-  const facts = await sb(`facts?account_id=eq.${a.id}&select=*`).catch(()=>[]);
+  const [facts, repSources] = await Promise.all([
+    sb(`facts?account_id=eq.${a.id}&select=*`).catch(()=>[]),
+    sb(`sources?account_id=eq.${a.id}&select=*`).catch(()=>[])
+  ]);
+  const repSourcesById = sourcesById(repSources);
 
   // Priority order for intended_use
   const USE_PRIORITY = ['buying_committee_mapping','conversation_prep','account_qualification','timing_signal'];
@@ -988,7 +1130,7 @@ async function renderSalesRep(panel) {
         <div style="padding:10px 16px;">
           <button style="font-size:11px;color:#2563eb;background:none;border:none;cursor:pointer;padding:0;" onclick="toggleEvidence('${f.id}')">+ View evidence and scoring</button>
           <div id="evidence-${f.id}" style="display:none;margin-top:10px;font-size:11px;color:#777;line-height:1.8;">
-            <div><strong style="color:#555;">Source:</strong> ${f.notes||'—'}</div>
+            <div><strong style="color:#555;">Source:</strong> ${factSourceLabel(f, repSourcesById)||'—'}</div>
             <div><strong style="color:#555;">Valid until:</strong> ${f.valid_until?f.valid_until.split('T')[0]:'—'} ${freshnessBadge(f)}</div>
             <div><strong style="color:#555;">Confidence score:</strong> ${conf!==null?conf+'%':'unscored'} (threshold for this use: ${threshold}%)</div>
             <div><strong style="color:#555;">Fact type:</strong> ${f.type} — ${f.type==='A'?'verified from named source':f.type==='B'?'inferred from signals':f.type==='C'?'third-party, unverified':'unknown'}</div>
@@ -1208,13 +1350,14 @@ async function renderGate(panel) {
 
 async function renderOutput(panel) {
   const a = selectedAccount;
-  const [facts, conflicts, rejections] = await Promise.all([
+  const [facts, conflicts, rejections, sources] = await Promise.all([
     sb(`facts?account_id=eq.${a.id}&select=*&order=type.asc`).catch(()=>[]),
     sb(`conflicts?account_id=eq.${a.id}&select=*`).catch(()=>[]),
-    sb(`rejections?account_id=eq.${a.id}&select=*`).catch(()=>[])
+    sb(`rejections?account_id=eq.${a.id}&select=*`).catch(()=>[]),
+    sb(`sources?account_id=eq.${a.id}&select=*`).catch(()=>[])
   ]);
   const today = new Date().toISOString().split('T')[0];
-  const md = generateMD(a, facts||[], today, conflicts||[], rejections||[]);
+  const md = generateMD(a, facts||[], today, conflicts||[], rejections||[], sources||[]);
 
   const nonGap = (facts||[]).filter(f=>f.type!=='D');
   const confirmed = nonGap.filter(f=>f.confidence>=80).length;
@@ -1240,12 +1383,13 @@ async function renderOutput(panel) {
     <div class="output-preview" id="md-preview">${escHtml(md)}</div>`;
 }
 
-function generateMD(account, facts, today, conflicts, rejections) {
+function generateMD(account, facts, today, conflicts, rejections, sources) {
   conflicts = conflicts || [];
   rejections = rejections || [];
+  const mdSourcesById = sourcesById(sources);
   const byType = t=>facts.filter(f=>f.type===t);
   const byUse = u=>facts.filter(f=>f.intended_use===u);
-  const lines = arr=>arr.length===0?'_None logged._\n':arr.map(f=>`- ${f.content}${f.notes?` *(${f.notes})*`:''}`).join('\n')+'\n';
+  const lines = arr=>arr.length===0?'_None logged._\n':arr.map(f=>{const src=factSourceLabel(f, mdSourcesById);return `- ${f.content}${src?` *(${src})*`:''}`;}).join('\n')+'\n';
 
   const committee = byUse('buying_committee_mapping');
   const committeeLines = lines(committee);
@@ -1334,13 +1478,14 @@ async function pushGitHub() {
   const a=selectedAccount, statusEl=document.getElementById('push-status');
   statusEl.innerHTML=`<div class="alert alert-info">Pushing to GitHub...</div>`;
   try {
-    const [facts, conflicts, rejections] = await Promise.all([
+    const [facts, conflicts, rejections, sources] = await Promise.all([
       sb(`facts?account_id=eq.${a.id}&select=*&order=type.asc`).catch(()=>[]),
       sb(`conflicts?account_id=eq.${a.id}&select=*`).catch(()=>[]),
-      sb(`rejections?account_id=eq.${a.id}&select=*`).catch(()=>[])
+      sb(`rejections?account_id=eq.${a.id}&select=*`).catch(()=>[]),
+      sb(`sources?account_id=eq.${a.id}&select=*`).catch(()=>[])
     ]);
     const today=new Date().toISOString().split('T')[0];
-    const content=generateMD(a,facts||[],today,conflicts||[],rejections||[]);
+    const content=generateMD(a,facts||[],today,conflicts||[],rejections||[],sources||[]);
     const slug=(a.name||'account').toLowerCase().replace(/[^a-z0-9]+/g,'-');
     const path=`agents/tabita/accounts/${slug}/v1.md`;
     const res=await fetch(GITHUB_PROXY_URL,{method:'POST',headers:{'apikey':SUPABASE_PUBLISHABLE_KEY,'Content-Type':'application/json'},body:JSON.stringify({path,content,message:`CaP: update ${a.name} dossier ${today}`})});
@@ -1362,18 +1507,19 @@ async function renderRegistry(panel) {
   const sources=await sb('sources?select=*&order=credibility_tier.asc,name.asc').catch(()=>[]);
   let html=`<div class="panel-section" style="display:flex;justify-content:space-between;align-items:center;"><div><div class="section-label">Source registry</div><div style="font-size:12px;color:#bbb;">${(sources||[]).length} registered sources</div></div><button class="btn btn-secondary btn-sm" onclick="setSourceTab('register')">+ Register source</button></div>`;
   if(!sources||sources.length===0){html+=`<div style="color:#bbb;font-size:12px;">No sources registered yet.</div>`;}
-  else sources.forEach(s=>{html+=`<div class="source-card"><div class="sc-name">${s.name}</div><div class="sc-type">Tier ${s.credibility_tier||'?'} · ${s.type||'—'}</div><div class="sc-row"><span><strong>URL</strong>${s.url?`<a href="${s.url}" target="_blank" style="color:#2563eb;">${s.url.length>50?s.url.substring(0,50)+'…':s.url}</a>`:'—'}</span><span><strong>Valid until</strong>${s.valid_until?s.valid_until.split('T')[0]:'—'}</span><span><strong>Added</strong>${s.created_at?s.created_at.split('T')[0]:'—'}</span></div></div>`;});
+  else sources.forEach(s=>{
+    const account = accounts.find(a=>a.id===s.account_id);
+    html+=`<div class="source-card"><div class="sc-name">${s.name}</div><div class="sc-type">Tier ${s.credibility_tier||'?'} · ${s.type||'—'} · ${account?account.name:'Unknown account'}</div><div class="sc-row"><span><strong>URL</strong>${s.url?`<a href="${s.url}" target="_blank" style="color:#2563eb;">${s.url.length>50?s.url.substring(0,50)+'…':s.url}</a>`:'—'}</span><span><strong>Valid until</strong>${s.valid_until?s.valid_until.split('T')[0]:'—'}</span><span><strong>Added</strong>${s.created_at?s.created_at.split('T')[0]:'—'}</span></div></div>`;
+  });
   panel.innerHTML=html;
 }
 
 function renderRegisterForm(panel) {
-  panel.innerHTML=`<div class="panel-section"><div class="section-label">Register new source</div><div style="font-size:12px;color:#bbb;">Every source needs a spec before facts can be drawn from it</div></div><div style="max-width:560px;" class="form-card"><div class="form-row"><label>Source name *</label><input id="sf-name" placeholder="e.g. Recruit Holdings FY2024 Annual Report"></div><div class="form-row"><label>Type</label><select id="sf-type"><option>Primary (company-published)</option><option>News / media</option><option>Analyst report</option><option>Government / regulatory</option><option>Third-party aggregator</option><option>Proprietary / internal</option></select></div><div class="form-row"><label>Credibility tier</label><select id="sf-tier"><option value="1">Tier 1 — Primary, verified</option><option value="2">Tier 2 — Reputable secondary</option><option value="3">Tier 3 — Third-party, use with caution</option></select></div><div class="form-row"><label>URL</label><input id="sf-url" placeholder="https://..."></div><div class="form-row"><label>Valid until</label><input id="sf-valid" type="date"></div><div class="form-row"><label>Notes</label><textarea id="sf-notes" placeholder="Reliability, recency, access context..."></textarea></div><div style="display:flex;gap:8px;"><button class="btn btn-primary btn-sm" onclick="saveSource()">Register</button><button class="btn btn-secondary btn-sm" onclick="setSourceTab('registry')">Cancel</button></div><div id="source-save-status" style="margin-top:12px;"></div></div>`;
+  panel.innerHTML=`<div class="panel-section"><div class="section-label">Register new source</div><div style="font-size:12px;color:#bbb;">Every source needs a spec before facts can be drawn from it</div></div><div style="max-width:560px;" class="form-card">${sourceFormFieldsHTML('sf', true)}<div style="display:flex;gap:8px;"><button class="btn btn-primary btn-sm" onclick="saveSource()">Register</button><button class="btn btn-secondary btn-sm" onclick="setSourceTab('registry')">Cancel</button></div><div id="source-save-status" style="margin-top:12px;"></div></div>`;
 }
 
 async function saveSource() {
-  const name=(document.getElementById('sf-name').value||'').trim();
-  if(!name){alert('Source name required.');return;}
-  try{const result=await sb('sources',{method:'POST',body:JSON.stringify({name,type:document.getElementById('sf-type').value,credibility_tier:parseInt(document.getElementById('sf-tier').value),url:document.getElementById('sf-url').value||null,valid_until:document.getElementById('sf-valid').value||null,notes:document.getElementById('sf-notes').value||null})});document.getElementById('source-save-status').innerHTML=`<div class="alert alert-success">✓ Registered · ID: ${result?.[0]?.id||'saved'}</div>`;}
+  try{const saved=await registerSource('sf', null);document.getElementById('source-save-status').innerHTML=`<div class="alert alert-success">✓ Registered · ID: ${saved?.id||'saved'}</div>`;}
   catch(e){document.getElementById('source-save-status').innerHTML=`<div class="alert alert-error">${e.message}</div>`;}
 }
 
