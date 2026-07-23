@@ -216,6 +216,64 @@ function needsReview(fact) {
   return conf < reviewThreshold(fact);
 }
 
+// DECONFLICTION_RULES.md: "decision risk" — facts/conflicts in these categories never get a
+// confidence-based nudge, since acting on a wrong one costs the most (bad contact, bad call line).
+const HIGH_RISK_USES = ['buying_committee_mapping', 'conversation_prep'];
+
+// Cheap, mechanical pattern-matching hints — no LLM, no reasoning, just text checks. At most one
+// hint per conflict, checked in priority order; used to speed up a human's read, never to decide.
+function detectConflictHint(factA, factB) {
+  const textA = (factA?.content||'').toLowerCase();
+  const textB = (factB?.content||'').toLowerCase();
+
+  const yearsOf = t => [...t.matchAll(/20\d{2}/g)].map(m=>m[0]);
+  const quartersOf = t => [...t.matchAll(/q[1-4]/g)].map(m=>m[0]);
+  const yA = yearsOf(textA), yB = yearsOf(textB), qA = quartersOf(textA), qB = quartersOf(textB);
+  if ((yA.length && yB.length && !yA.some(y=>yB.includes(y))) ||
+      (qA.length && qB.length && !qA.some(q=>qB.includes(q)))) {
+    return 'These might be from different years.';
+  }
+
+  const scopeWords = ['consolidated', 'domestic', 'segment', 'regional', 'global'];
+  const scopeNearNumber = t => scopeWords.some(w => {
+    let idx = t.indexOf(w);
+    while (idx !== -1) {
+      const win = t.slice(Math.max(0, idx-20), Math.min(t.length, idx+w.length+20));
+      if (/\d/.test(win)) return true;
+      idx = t.indexOf(w, idx+1);
+    }
+    return false;
+  });
+  if (scopeNearNumber(textA) || scopeNearNumber(textB)) return 'These might cover different scopes.';
+
+  const hedgeWords = ['approximately', 'roughly', 'about', '~'];
+  if (hedgeWords.some(w => textA.includes(w) || textB.includes(w))) return 'One of these looks like an estimate.';
+
+  return null;
+}
+
+// Reuses c.trusted_fact directly (already null on a true tie, per the prior tie-break fix) rather
+// than recomputing a confidence comparison a second time from a possibly-stale snapshot.
+function conflictNeedsJudgment(c, factA, factB) {
+  if (!c.trusted_fact) return true;
+  const use = factA?.intended_use || factB?.intended_use;
+  if (HIGH_RISK_USES.includes(use)) return true;
+  if (detectConflictHint(factA, factB)) return true;
+  return false;
+}
+
+// Tie/hint concepts are pairwise (conflict-only) — the only criterion with a natural single-fact
+// meaning is the high-risk category, so that's the sole basis for triaging a lone fact.
+function factNeedsJudgment(f) {
+  return HIGH_RISK_USES.includes(f.intended_use);
+}
+
+function triageBadge(needsJudgment) {
+  return needsJudgment
+    ? `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:#fef3c7;color:#92400e;">⚑ Needs real judgment</span>`
+    : `<span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:3px;background:#dbeafe;color:#1e40af;">⚡ Quick confirm</span>`;
+}
+
 // Freshness bar: shows decay state visually
 function freshnessBadge(fact) {
   if (!fact.valid_until) return '';
@@ -329,13 +387,29 @@ async function renderTab(t) {
 
 async function renderOverview(panel) {
   const a = selectedAccount;
-  const [facts, conflicts] = await Promise.all([
+  const [facts, conflicts, openConflictsFull, allFacts] = await Promise.all([
     sb(`facts?account_id=eq.${a.id}&select=type`).catch(()=>[]),
-    sb(`conflicts?account_id=eq.${a.id}&select=id,status`).catch(()=>[])
+    sb(`conflicts?account_id=eq.${a.id}&select=id,status`).catch(()=>[]),
+    sb(`conflicts?account_id=eq.${a.id}&status=eq.open&select=*`).catch(()=>[]),
+    sb(`facts?account_id=eq.${a.id}&select=*`).catch(()=>[])
   ]);
   const tc = type => (facts||[]).filter(f=>f.type===type).length;
   const gapCount = tc('D');
   const openConflictCount = (conflicts||[]).filter(c=>c.status==='open').length;
+
+  // Combined triage count — same needsJudgment logic used in the Issues and Sales Rep Review tabs,
+  // so a reviewer knows the real scope of work across both without opening either one.
+  const factLookup = {};
+  (allFacts||[]).forEach(f => { factLookup[f.id] = f; });
+  let needsJudgmentCount = 0, quickConfirmCount = 0;
+  (openConflictsFull||[]).forEach(c => {
+    const factA = factLookup[c.fact_a], factB = factLookup[c.fact_b];
+    if (conflictNeedsJudgment(c, factA, factB)) needsJudgmentCount++; else quickConfirmCount++;
+  });
+  (allFacts||[])
+    .filter(f => f.type !== 'D' && needsReview(f) && f.trust_status !== 'rejected' && f.trust_status !== 'removed' && f.trust_status !== 'human_confirmed' && f.trust_status !== 'archived')
+    .forEach(f => { if (factNeedsJudgment(f)) needsJudgmentCount++; else quickConfirmCount++; });
+
   panel.innerHTML = `
     <div class="panel-section">
       <div class="section-label">Account</div>
@@ -346,6 +420,10 @@ async function renderOverview(panel) {
       <div class="ov-cell"><div class="ov-num">${(facts||[]).length}</div><div class="ov-label">Total facts</div></div>
       <div class="ov-cell"><div class="ov-num">${openConflictCount}</div><div class="ov-label">Conflicts needing review</div></div>
       <div class="ov-cell"><div class="ov-num">${gapCount}</div><div class="ov-label">Gaps</div></div>
+    </div>
+    <div class="panel-section">
+      <div class="section-label">Review queue</div>
+      <div style="font-size:13px;color:#333;margin-top:4px;">${needsJudgmentCount} need real judgment · ${quickConfirmCount} are quick confirm${quickConfirmCount===1?'':'s'}</div>
     </div>
     <div class="panel-section">
       <div class="section-label">Fact breakdown</div>
@@ -725,19 +803,29 @@ async function renderIssues(panel) {
       : '';
     const reasonNote = c.resolution_condition ? `<div style="margin-top:4px;font-size:11px;color:#888;">${c.resolution_condition}</div>` : '';
 
+    const isOpen = c.status !== 'resolved';
+    const isHighRisk = HIGH_RISK_USES.includes(factA?.intended_use) || HIGH_RISK_USES.includes(factB?.intended_use);
+    const showHint = isOpen && c.trusted_fact && !isHighRisk;
+    const hint = detectConflictHint(factA, factB);
+    const needsJudgment = conflictNeedsJudgment(c, factA, factB);
+
+    const btnBase = 'font-size:10px;';
+    const keepBtnStyle = (isBold) => `background:#f0fdf4;color:#16a34a;${isBold ? 'border:2px solid #16a34a;font-weight:700;' : 'border:1px solid #bbf7d0;'}${btnBase}`;
+
+    const resolutionButtons = isOpen ? `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+        <button class="btn btn-sm" style="${keepBtnStyle(showHint && c.trusted_fact===c.fact_a)}" onclick="resolveConflict('${c.id}','${c.fact_a}','${c.fact_b}')">Keep Fact A</button>
+        <button class="btn btn-sm" style="${keepBtnStyle(showHint && c.trusted_fact===c.fact_b)}" onclick="resolveConflict('${c.id}','${c.fact_b}','${c.fact_a}')">Keep Fact B</button>
+        <button class="btn btn-sm" style="background:#f9fafb;color:#555;border:1px solid #e5e7eb;${btnBase}" onclick="resolveConflict('${c.id}',null,null)">Both are valid</button>
+      </div>` : '';
+    const hintNote = (isOpen && hint) ? `<div style="margin-top:6px;font-size:11px;color:#b45309;">⚠ ${hint}</div>` : '';
+
     return `<div class="issue-card" style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
         <div class="ic-type">⚡ Conflict · ${levelBadge(c.level)}</div>
         <div style="display:flex;gap:8px;align-items:center;">
           ${statusBadge(c.status)}
-          ${c.status !== 'resolved' ? (
-            c.trusted_fact
-              ? `<button class="btn btn-sm" style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-size:10px;" onclick="resolveConflict('${c.id}','${c.trusted_fact}','${c.trusted_fact === c.fact_a ? c.fact_b : c.fact_a}')">Resolve manually</button>`
-              : `<div style="display:flex;gap:6px;flex-wrap:wrap;">
-                   <button class="btn btn-sm" style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-size:10px;" onclick="resolveConflict('${c.id}','${c.fact_a}','${c.fact_b}')">Keep "${truncate(factA?.content)}"</button>
-                   <button class="btn btn-sm" style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-size:10px;" onclick="resolveConflict('${c.id}','${c.fact_b}','${c.fact_a}')">Keep "${truncate(factB?.content)}"</button>
-                 </div>`
-          ) : ''}
+          ${isOpen ? triageBadge(needsJudgment) : ''}
         </div>
       </div>
       <div class="ic-text" style="margin-bottom:4px;">${c.notes||'—'}</div>
@@ -745,11 +833,25 @@ async function renderIssues(panel) {
       ${factBlock(factB, trustedId === c.fact_b)}
       ${resolvedNote}
       ${reasonNote}
+      ${hintNote}
+      ${resolutionButtons}
     </div>`;
   };
 
+  const quickConflicts = [];
+  openConflictsList.forEach(c => {
+    const factA = resolveFact(c.fact_a), factB = resolveFact(c.fact_b);
+    if (!conflictNeedsJudgment(c, factA, factB)) {
+      quickConflicts.push({ id: c.id, archiveId: c.trusted_fact===c.fact_a ? c.fact_b : c.fact_a, label: `${truncate(factA?.content)} vs ${truncate(factB?.content)}` });
+    }
+  });
+  window._quickConflicts = quickConflicts;
+
   if (openConflictsList.length > 0) {
     html += `<div class="section-label" style="margin-bottom:8px;">Conflicts needing a decision — CaP couldn't auto-resolve these</div>`;
+    if (quickConflicts.length > 0) {
+      html += `<button class="btn btn-secondary btn-sm" style="margin-bottom:10px;" onclick="showBulkResolvePreview()">Resolve all ${quickConflicts.length} quick item${quickConflicts.length===1?'':'s'}</button><div id="bulk-resolve-preview"></div>`;
+    }
     openConflictsList.forEach(c => { html += renderConflictCard(c); });
   }
 
@@ -997,6 +1099,31 @@ async function resolveConflict(conflictId, keepFactId, archiveFactId) {
   }
 }
 
+function showBulkResolvePreview() {
+  const items = window._quickConflicts || [];
+  document.getElementById('bulk-resolve-preview').innerHTML = `
+    <div class="alert alert-info" style="margin-top:10px;">
+      <div style="font-weight:600;margin-bottom:6px;">About to resolve ${items.length} conflict(s), keeping the suggested fact in each:</div>
+      <ul style="margin:0 0 10px 18px;padding:0;font-size:12px;">${items.map(q=>`<li>${q.label}</li>`).join('')}</ul>
+      <button class="btn btn-primary btn-sm" onclick="runBulkResolveConflicts()">Confirm — resolve all ${items.length}</button>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('bulk-resolve-preview').innerHTML=''">Cancel</button>
+    </div>`;
+}
+
+async function runBulkResolveConflicts() {
+  const items = window._quickConflicts || [];
+  await Promise.all(items.map(q => {
+    const archive = q.archiveId
+      ? sb(`facts?id=eq.${q.archiveId}`, { method: 'PATCH', body: JSON.stringify({ trust_status: 'archived' }) })
+      : Promise.resolve();
+    return archive.then(() => sb(`conflicts?id=eq.${q.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'resolved', resolved_by: 'Context Director', resolved_date: new Date().toISOString().split('T')[0] })
+    })).catch(()=>{});
+  }));
+  await renderTab('issues');
+}
+
 function reverifyFact(factId) {
   const statusEl = document.getElementById(`reverify-status-${factId}`);
   if (!statusEl) return;
@@ -1071,11 +1198,16 @@ async function renderSalesRep(panel) {
     return { text: 'Medium confidence · missing sales context', color: '#d97706', bg: '#fffbeb', border: '#fde68a' };
   };
 
-  // Filter: below threshold, not rejected/removed, not type D, cap at 5
-  const queue = facts
+  // Filter: below threshold, not rejected/removed, not type D
+  const eligible = facts
     .filter(f => f.type !== 'D' && needsReview(f) && f.trust_status !== 'rejected' && f.trust_status !== 'removed' && f.trust_status !== 'human_confirmed' && f.trust_status !== 'archived')
-    .sort((a, b) => USE_PRIORITY.indexOf(a.intended_use) - USE_PRIORITY.indexOf(b.intended_use))
-    .slice(0, 5);
+    .sort((a, b) => USE_PRIORITY.indexOf(a.intended_use) - USE_PRIORITY.indexOf(b.intended_use));
+  // "Needs real judgment" keeps the existing 5-item cap (genuinely effortful review, one session
+  // at a time); "Quick confirm" is uncapped so the bulk action and Overview count see the true scope.
+  const needsJudgmentQueue = eligible.filter(factNeedsJudgment).slice(0, 5);
+  const quickConfirmQueue = eligible.filter(f => !factNeedsJudgment(f));
+  const queue = [...needsJudgmentQueue, ...quickConfirmQueue];
+  window._quickConfirmFacts = quickConfirmQueue.map(f => ({ id: f.id, content: f.content }));
 
   // Track review actions in memory for completion summary
   if (!window._repReview) window._repReview = {};
@@ -1117,6 +1249,8 @@ async function renderSalesRep(panel) {
     const threshold = reviewThreshold(f);
     return `
       <div id="card-${f.id}" style="background:#fff;border:1px solid #e5e5e5;border-radius:8px;margin-bottom:16px;overflow:hidden;">
+
+        <div style="padding:10px 16px 0;">${triageBadge(factNeedsJudgment(f))}</div>
 
         <!-- Decision affected -->
         <div style="padding:14px 16px 10px;border-bottom:1px solid #f0f0f0;">
@@ -1214,6 +1348,7 @@ async function renderSalesRep(panel) {
       <div style="font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:4px;">Decide how CaP should use low-confidence account signals.</div>
       <div style="font-size:12px;color:#888;">These signals are not ready for activation yet. Choose whether to use, watch, edit, or reject.</div>
     </div>
+    ${quickConfirmQueue.length > 0 ? `<button class="btn btn-secondary btn-sm" style="margin-bottom:16px;" onclick="showBulkConfirmPreview()">Confirm all ${quickConfirmQueue.length} quick item${quickConfirmQueue.length===1?'':'s'}</button><div id="bulk-confirm-preview"></div>` : ''}
     ${cards}`;
 }
 
@@ -1244,6 +1379,28 @@ async function repAction(factId, action) {
   } else if (action === 'reject') {
     document.getElementById(`reject-form-${factId}`).style.display = 'block';
   }
+}
+
+function showBulkConfirmPreview() {
+  const items = window._quickConfirmFacts || [];
+  document.getElementById('bulk-confirm-preview').innerHTML = `
+    <div class="alert alert-info" style="margin-top:10px;">
+      <div style="font-weight:600;margin-bottom:6px;">About to confirm ${items.length} fact(s) as pursuit signals:</div>
+      <ul style="margin:0 0 10px 18px;padding:0;font-size:12px;">${items.map(f=>`<li>${(f.content||'').slice(0,80)}</li>`).join('')}</ul>
+      <button class="btn btn-primary btn-sm" onclick="runBulkConfirmFacts()">Confirm — approve all ${items.length}</button>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('bulk-confirm-preview').innerHTML=''">Cancel</button>
+    </div>`;
+}
+
+async function runBulkConfirmFacts() {
+  const items = window._quickConfirmFacts || [];
+  await Promise.all(items.map(f => sb(`facts?id=eq.${f.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ confidence: TYPE_CONFIDENCE['A'] || 90, trust_status: 'human_confirmed' })
+  }).catch(()=>{})));
+  if (!window._repReview) window._repReview = {};
+  items.forEach(f => { window._repReview[f.id] = 'confirm'; });
+  await renderTab('salesrep');
 }
 
 async function submitWatchlist(factId, reason) {
