@@ -411,7 +411,8 @@ async function renderFacts(panel) {
         : decayed ? `${conf}% <span style="color:#bbb;font-weight:400;font-size:10px;">↓ from ${origConf}%</span>`
         : `${conf}%`;
       const review = needsReview(f);
-      html += `<tr>
+      const isMuted = f.trust_status === 'archived' || f.trust_status === 'stale';
+      html += `<tr${isMuted ? ' style="opacity:0.5;"' : ''}>
         <td><span class="type-badge type-${(f.type||'d').toLowerCase()}">${f.type||'?'}</span></td>
         <td>${f.content||'—'}${review ? ' <span style="font-size:10px;color:#d97706;font-weight:600;">· needs review</span>' : ''}</td>
         <td style="color:#888;font-size:11px;">${factSourceLabel(f, byId)||'—'}</td>
@@ -602,7 +603,7 @@ async function runGapCheck(accountId) {
     const facts = await sb(`facts?account_id=eq.${accountId}&select=*`);
     if (!facts) return;
 
-    const activeFacts = facts.filter(f => f.type !== 'D' && f.trust_status !== 'rejected' && f.trust_status !== 'removed');
+    const activeFacts = facts.filter(f => f.type !== 'D' && f.trust_status !== 'rejected' && f.trust_status !== 'removed' && f.trust_status !== 'archived');
     const existingGaps = facts.filter(f => f.type === 'D').map(f => f.content.toLowerCase());
 
     const newGaps = [];
@@ -675,6 +676,8 @@ async function renderIssues(panel) {
     return `<span style="font-size:10px;font-weight:600;color:${map[l]||'#6b7280'};">${(l||'—').toUpperCase()}</span>`;
   };
 
+  const truncate = (s, n=50) => !s ? '—' : (s.length > n ? s.slice(0, n).trim() + '…' : s);
+
   const routeBadge = (r) => {
     const isCap = r === 'cap';
     const label = isCap ? 'Fact corrected' : 'Logged only — not CaP\'s fix';
@@ -727,7 +730,14 @@ async function renderIssues(panel) {
         <div class="ic-type">⚡ Conflict · ${levelBadge(c.level)}</div>
         <div style="display:flex;gap:8px;align-items:center;">
           ${statusBadge(c.status)}
-          ${c.status !== 'resolved' ? `<button class="btn btn-sm" style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-size:10px;" onclick="resolveConflict('${c.id}')">Resolve manually</button>` : ''}
+          ${c.status !== 'resolved' ? (
+            c.trusted_fact
+              ? `<button class="btn btn-sm" style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-size:10px;" onclick="resolveConflict('${c.id}','${c.trusted_fact}','${c.trusted_fact === c.fact_a ? c.fact_b : c.fact_a}')">Resolve manually</button>`
+              : `<div style="display:flex;gap:6px;flex-wrap:wrap;">
+                   <button class="btn btn-sm" style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-size:10px;" onclick="resolveConflict('${c.id}','${c.fact_a}','${c.fact_b}')">Keep "${truncate(factA?.content)}"</button>
+                   <button class="btn btn-sm" style="background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;font-size:10px;" onclick="resolveConflict('${c.id}','${c.fact_b}','${c.fact_a}')">Keep "${truncate(factB?.content)}"</button>
+                 </div>`
+          ) : ''}
         </div>
       </div>
       <div class="ic-text" style="margin-bottom:4px;">${c.notes||'—'}</div>
@@ -858,10 +868,12 @@ async function runDeconfliction(accountId) {
               const diff = Math.abs(maxA - maxB) / Math.max(maxA, maxB);
 
               if (diff > 0.05) { // >5% difference = flag
-                // Determine trusted fact by confidence (Rule 3 — a starting point for review, not a resolution)
+                // Determine trusted fact by confidence (Rule 3 — a starting point for review, not a resolution).
+                // On a true tie, no suggestion is made: the fetch above has no ORDER BY, so which fact
+                // lands in `a` vs `b` isn't guaranteed stable across runs — guessing would be a disguised coin flip.
                 const confA = a.confidence||0, confB = b.confidence||0;
-                const trusted = confA >= confB ? a : b;
-                const other = trusted.id===a.id ? b : a;
+                const isTie = confA === confB;
+                const trusted = isTie ? null : (confA > confB ? a : b);
                 const level = diff > 0.2 ? 'HIGH' : 'MEDIUM';
 
                 conflictsFound.push({
@@ -869,8 +881,10 @@ async function runDeconfliction(accountId) {
                   fact_a: a.id,
                   fact_b: b.id,
                   level,
-                  trusted_fact: trusted.id,
-                  resolution_condition: `Needs Context Director review — ${trusted.confidence}% vs ${other.confidence}% confidence; higher-confidence fact suggested as trusted, not auto-applied`,
+                  trusted_fact: trusted ? trusted.id : null,
+                  resolution_condition: isTie
+                    ? `Tied confidence (${confA}% each) — Context Director must choose which fact to trust, no suggestion available.`
+                    : `Needs Context Director review — ${trusted.confidence}% vs ${(trusted.id===a.id?b:a).confidence}% confidence; higher-confidence fact suggested as trusted, not auto-applied`,
                   status: 'open',
                   resolved_by: null,
                   resolved_date: null,
@@ -895,14 +909,17 @@ async function runDeconfliction(accountId) {
           if (similarity > 0.7 && a.id !== b.id) {
             if (!conflictsFound.find(c => c.fact_a === a.id && c.fact_b === b.id)) {
               const confA = a.confidence||0, confB = b.confidence||0;
-              const trusted = confA >= confB ? a : b;
+              const isTie = confA === confB;
+              const trusted = isTie ? null : (confA > confB ? a : b);
               conflictsFound.push({
                 account_id: accountId,
                 fact_a: a.id,
                 fact_b: b.id,
                 level: 'LOW',
-                trusted_fact: trusted.id,
-                resolution_condition: `Needs Context Director review — possible duplicate; ${trusted.confidence}% confidence version suggested to keep, not auto-applied`,
+                trusted_fact: trusted ? trusted.id : null,
+                resolution_condition: isTie
+                  ? `Tied confidence (${confA}% each) — Context Director must choose which fact to trust, no suggestion available.`
+                  : `Needs Context Director review — possible duplicate; ${trusted.confidence}% confidence version suggested to keep, not auto-applied`,
                 status: 'open',
                 resolved_by: null,
                 resolved_date: null,
@@ -962,9 +979,15 @@ async function runDeconfliction(accountId) {
   }
 }
 
-async function resolveConflict(id) {
+async function resolveConflict(conflictId, keepFactId, archiveFactId) {
   try {
-    await sb(`conflicts?id=eq.${id}`, {
+    if (archiveFactId) {
+      await sb(`facts?id=eq.${archiveFactId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ trust_status: 'archived' })
+      });
+    }
+    await sb(`conflicts?id=eq.${conflictId}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: 'resolved', resolved_by: 'Context Director', resolved_date: new Date().toISOString().split('T')[0] })
     });
@@ -1050,7 +1073,7 @@ async function renderSalesRep(panel) {
 
   // Filter: below threshold, not rejected/removed, not type D, cap at 5
   const queue = facts
-    .filter(f => f.type !== 'D' && needsReview(f) && f.trust_status !== 'rejected' && f.trust_status !== 'removed' && f.trust_status !== 'human_confirmed')
+    .filter(f => f.type !== 'D' && needsReview(f) && f.trust_status !== 'rejected' && f.trust_status !== 'removed' && f.trust_status !== 'human_confirmed' && f.trust_status !== 'archived')
     .sort((a, b) => USE_PRIORITY.indexOf(a.intended_use) - USE_PRIORITY.indexOf(b.intended_use))
     .slice(0, 5);
 
@@ -1363,7 +1386,7 @@ async function renderOutput(panel) {
   const today = new Date().toISOString().split('T')[0];
   const md = generateMD(a, facts||[], today, conflicts||[], rejections||[], sources||[]);
 
-  const nonGap = (facts||[]).filter(f=>f.type!=='D');
+  const nonGap = (facts||[]).filter(f=>f.type!=='D' && f.trust_status!=='archived');
   const confirmed = nonGap.filter(f=>f.confidence>=80).length;
   const openConflicts = (conflicts||[]).filter(c=>c.status!=='resolved').length;
 
@@ -1390,6 +1413,7 @@ async function renderOutput(panel) {
 function generateMD(account, facts, today, conflicts, rejections, sources) {
   conflicts = conflicts || [];
   rejections = rejections || [];
+  facts = facts.filter(f => f.trust_status !== 'archived'); // compacted out of the dossier; stays in Supabase for audit
   const mdSourcesById = sourcesById(sources);
   const byType = t=>facts.filter(f=>f.type===t);
   const byUse = u=>facts.filter(f=>f.intended_use===u);
