@@ -1417,6 +1417,24 @@ function generateMD(account, facts, today, conflicts, rejections, sources) {
     ? '_No rejections logged for this account._\n'
     : `${rejections.length} total — ${sourceRejections.length} required CaP correction, ${rejections.length-sourceRejections.length} routed to WHEN Layer.\n`;
 
+  // Fact counts by type — "verified" describes Type A only, per CaP's own definition.
+  // Blending A/B/C/D into one number under "verified" overstates every dossier's evidence base.
+  const countA = byType('A').length;
+  const countB = byType('B').length;
+  const countC = byType('C').length;
+  const countD = byType('D').length;
+  const factBreakdown = `${countA} verified, ${countB} inferred, ${countC} third-party unverified, ${countD} known gap${countD===1?'':'s'}`;
+
+  // Gate 2 status data — same fields the Director Gate tab computes for its live status grid
+  // (renderGate()), recomputed here from this call's own facts/conflicts so the defensibility
+  // statement below always matches this specific dossier's numbers, not a fixed template.
+  const nonGapFacts = facts.filter(f => f.type !== 'D');
+  const pendingReviewFacts = nonGapFacts.filter(f => needsReview(f));
+  const staleFacts = facts.filter(f => f.trust_status === 'stale');
+  const dupConflicts = conflicts.filter(c => (c.notes||'').toLowerCase().includes('duplicate') || (c.notes||'').toLowerCase().includes('similarity'));
+  const dupOpenConflicts = dupConflicts.filter(c => c.status !== 'resolved');
+  const compactionPending = staleFacts.length + dupOpenConflicts.length;
+
   const slug=(account.name||'account').toLowerCase().replace(/[^a-z0-9]+/g,'-');
 
   return `# ${account.name} — Context Dossier
@@ -1431,7 +1449,7 @@ function generateMD(account, facts, today, conflicts, rejections, sources) {
 ---
 
 ## Synthesis note
-This dossier reflects ${facts.length} facts collected and independently verified by CaP. Account qualification signals point to ${qualFacts.length>0?'a profile worth pursuing based on the verified facts below':'insufficient qualification data — see gaps'}. ${openConflicts.length>0?`There ${openConflicts.length===1?'is':'are'} ${openConflicts.length} unresolved conflict${openConflicts.length===1?'':'s'} that should be reviewed before this dossier is used in active outreach.`:'No unresolved conflicts at time of generation.'}
+This dossier reflects ${facts.length} facts collected: ${factBreakdown}. Account qualification signals point to ${qualFacts.length>0?'a profile worth pursuing based on the facts below':'insufficient qualification data — see gaps'}. ${openConflicts.length>0?`There ${openConflicts.length===1?'is':'are'} ${openConflicts.length} unresolved conflict${openConflicts.length===1?'':'s'} that should be reviewed before this dossier is used in active outreach.`:'No unresolved conflicts at time of generation.'}
 
 ---
 
@@ -1472,7 +1490,7 @@ ${lines(byType('D'))}
 ---
 
 ## Defensibility statement
-This dossier was reviewed through Gate 1 (data quality) and Gate 2 (defensibility) by the Context Director before release. Assumptions are surfaced, conflicts are logged, and compaction rules applied. Output integrity owned by Design Prodigy CaP.
+As of ${today}, ${pendingReviewFacts.length} of ${nonGapFacts.length} scored fact${nonGapFacts.length===1?'':'s'} ${pendingReviewFacts.length===1?'is':'are'} still pending confirmation, ${openConflicts.length} conflict${openConflicts.length===1?'':'s'} ${openConflicts.length===1?'is':'are'} open, and ${compactionPending} item${compactionPending===1?'':'s'} ${compactionPending===1?'is':'are'} pending compaction (${staleFacts.length} stale, ${dupOpenConflicts.length} duplicate). Accountable Context Director: ${account.context_director || 'Unassigned'}.
 
 ---
 *Repo: DesignProdigySG/DP-Syntropy-May-2026 · Branch: main · Path: agents/tabita/accounts/${slug}/v1.md*`;
