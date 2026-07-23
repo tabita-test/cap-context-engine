@@ -209,8 +209,12 @@ function reviewThreshold(fact) {
   return REVIEW_THRESHOLD[fact.intended_use] || 80;
 }
 
-function needsReview(fact) {
+function needsReview(fact, sourcesById) {
   if (fact.type === 'D') return false;
+  const source = fact.source_id && sourcesById ? sourcesById[fact.source_id] : null;
+  if (source && (source.type === 'agent' || source.type === 'crawl') && fact.trust_status !== 'human_confirmed') {
+    return true;
+  }
   const conf = effectiveConfidence(fact);
   if (conf === null || conf === undefined) return true;
   return conf < reviewThreshold(fact);
@@ -410,7 +414,7 @@ async function renderFacts(panel) {
       const confLabel = conf === null || conf === undefined ? '—'
         : decayed ? `${conf}% <span style="color:#bbb;font-weight:400;font-size:10px;">↓ from ${origConf}%</span>`
         : `${conf}%`;
-      const review = needsReview(f);
+      const review = needsReview(f, byId);
       html += `<tr>
         <td><span class="type-badge type-${(f.type||'d').toLowerCase()}">${f.type||'?'}</span></td>
         <td>${f.content||'—'}${review ? ' <span style="font-size:10px;color:#d97706;font-weight:600;">· needs review</span>' : ''}</td>
@@ -1050,7 +1054,7 @@ async function renderSalesRep(panel) {
 
   // Filter: below threshold, not rejected/removed, not type D, cap at 5
   const queue = facts
-    .filter(f => f.type !== 'D' && needsReview(f) && f.trust_status !== 'rejected' && f.trust_status !== 'removed' && f.trust_status !== 'human_confirmed')
+    .filter(f => f.type !== 'D' && needsReview(f, repSourcesById) && f.trust_status !== 'rejected' && f.trust_status !== 'removed' && f.trust_status !== 'human_confirmed')
     .sort((a, b) => USE_PRIORITY.indexOf(a.intended_use) - USE_PRIORITY.indexOf(b.intended_use))
     .slice(0, 5);
 
@@ -1299,13 +1303,15 @@ async function renderGate(panel) {
   const a = selectedAccount;
   panel.innerHTML = `<div class="loading">Loading...</div>`;
 
-  const [facts, conflicts] = await Promise.all([
+  const [facts, conflicts, gateSources] = await Promise.all([
     sb(`facts?account_id=eq.${a.id}&select=*`).catch(()=>[]),
-    sb(`conflicts?account_id=eq.${a.id}&select=*`).catch(()=>[])
+    sb(`conflicts?account_id=eq.${a.id}&select=*`).catch(()=>[]),
+    sb(`sources?account_id=eq.${a.id}&select=*`).catch(()=>[])
   ]);
+  const gateSourcesById = sourcesById(gateSources);
 
   const nonGapFacts = (facts||[]).filter(f => f.type !== 'D');
-  const pendingReview = nonGapFacts.filter(f => needsReview(f));
+  const pendingReview = nonGapFacts.filter(f => needsReview(f, gateSourcesById));
   const assumptionsPct = nonGapFacts.length === 0 ? 0 : Math.round((pendingReview.length / nonGapFacts.length) * 100);
   const assumptionsStatus = assumptionsPct === 0 ? 'green' : assumptionsPct <= 20 ? 'amber' : 'red';
   const assumptionsLabel = assumptionsPct === 0 ? 'All facts confirmed' : `${assumptionsPct}% pending (${pendingReview.length} facts)`;
