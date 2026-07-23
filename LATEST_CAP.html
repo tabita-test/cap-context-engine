@@ -299,6 +299,35 @@ function factSourceLabel(fact, sourcesById) {
   return fact.notes || null;
 }
 
+function extractUrl(text) {
+  if (!text) return null;
+  const m = text.match(/https?:\/\/[^\s)]+/i);
+  return m ? m[0].replace(/[.,;:!?]+$/, '') : null; // trim trailing sentence punctuation
+}
+
+// Mirrors factSourceLabel()'s own precedence exactly: linked source's own url field first,
+// legacy free-text notes second. No new resolution logic — same branching, different field.
+function factSourceUrl(fact, sourcesById) {
+  if (fact.source_id && sourcesById[fact.source_id]) return sourcesById[fact.source_id].url || null;
+  return extractUrl(fact.notes);
+}
+
+function escAttr(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// HTML rendering: wraps the existing label in a real link when a http(s) URL is resolvable,
+// otherwise falls back to the exact plain text already shown today.
+function factSourceHTML(fact, sourcesById) {
+  const label = factSourceLabel(fact, sourcesById);
+  if (!label) return null;
+  const url = factSourceUrl(fact, sourcesById);
+  if (url && /^https?:\/\//i.test(url)) {
+    return `<a href="${escAttr(url)}" target="_blank" rel="noopener" style="color:#2563eb;">${label}</a>`;
+  }
+  return label;
+}
+
 const sb = async (path, opts = {}) => {
   const res = await fetch(`${DB_PROXY_URL}/${path}`, {
     headers: { 'apikey': SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json', ...opts.headers },
@@ -493,7 +522,7 @@ async function renderFacts(panel) {
       html += `<tr${isMuted ? ' style="opacity:0.5;"' : ''}>
         <td><span class="type-badge type-${(f.type||'d').toLowerCase()}">${f.type||'?'}</span></td>
         <td>${f.content||'—'}${review ? ' <span style="font-size:10px;color:#d97706;font-weight:600;">· needs review</span>' : ''}</td>
-        <td style="color:#888;font-size:11px;">${factSourceLabel(f, byId)||'—'}</td>
+        <td style="color:#888;font-size:11px;">${factSourceHTML(f, byId)||'—'}</td>
         <td style="color:#888;font-size:11px;">${(f.intended_use||'—').replace(/_/g,' ')}</td>
         <td style="color:#888;font-size:11px;white-space:nowrap;">${f.valid_until?f.valid_until.split('T')[0]:'—'}${freshnessBadge(f)}</td>
         <td style="font-size:12px;font-weight:600;color:${confColor};">${confLabel}</td>
@@ -794,7 +823,7 @@ async function renderIssues(panel) {
     const factBlock = (fact, isTrusted) => fact ? `
       <div style="font-size:11px;color:#333;margin-top:6px;padding:8px 10px;background:${isTrusted?'#f0fdf4':'#fafafa'};border-radius:4px;border-left:3px solid ${isTrusted?'#16a34a':'#ddd'};">
         ${isTrusted ? '<span style="color:#16a34a;font-weight:600;">✓ CaP trusts this — </span>' : ''}${fact.content}
-        <div style="font-size:10px;color:#aaa;margin-top:3px;">${factSourceLabel(fact, issueSourcesById)||'No source'} · ${fact.confidence!==null&&fact.confidence!==undefined?fact.confidence+'% confidence':'unscored'}</div>
+        <div style="font-size:10px;color:#aaa;margin-top:3px;">${factSourceHTML(fact, issueSourcesById)||'No source'} · ${fact.confidence!==null&&fact.confidence!==undefined?fact.confidence+'% confidence':'unscored'}</div>
       </div>` : '';
 
     const isAuto = c.resolved_by === 'CaP (auto)';
@@ -882,7 +911,7 @@ async function renderIssues(panel) {
           <button class="btn btn-sm" style="background:#fffbeb;color:#d97706;border:1px solid #fde68a;" onclick="reverifyFact('${f.id}')">Re-verify now</button>
         </div>
         <div class="ic-text" style="margin-top:6px;">${f.content}</div>
-        <div style="margin-top:4px;font-size:11px;color:#888;">${factSourceLabel(f, issueSourcesById)||'No source'} — frozen from output until re-verified</div>
+        <div style="margin-top:4px;font-size:11px;color:#888;">${factSourceHTML(f, issueSourcesById)||'No source'} — frozen from output until re-verified</div>
         <div id="reverify-status-${f.id}" style="margin-top:8px;"></div>
       </div>`;
     });
@@ -1291,7 +1320,7 @@ async function renderSalesRep(panel) {
         <div style="padding:10px 16px;">
           <button style="font-size:11px;color:#2563eb;background:none;border:none;cursor:pointer;padding:0;" onclick="toggleEvidence('${f.id}')">+ View evidence and scoring</button>
           <div id="evidence-${f.id}" style="display:none;margin-top:10px;font-size:11px;color:#777;line-height:1.8;">
-            <div><strong style="color:#555;">Source:</strong> ${factSourceLabel(f, repSourcesById)||'—'}</div>
+            <div><strong style="color:#555;">Source:</strong> ${factSourceHTML(f, repSourcesById)||'—'}</div>
             <div><strong style="color:#555;">Valid until:</strong> ${f.valid_until?f.valid_until.split('T')[0]:'—'} ${freshnessBadge(f)}</div>
             <div><strong style="color:#555;">Confidence score:</strong> ${conf!==null?conf+'%':'unscored'} (threshold for this use: ${threshold}%)</div>
             <div><strong style="color:#555;">Fact type:</strong> ${f.type} — ${f.type==='A'?'verified from named source':f.type==='B'?'inferred from signals':f.type==='C'?'third-party, unverified':'unknown'}</div>
@@ -1574,7 +1603,12 @@ function generateMD(account, facts, today, conflicts, rejections, sources) {
   const mdSourcesById = sourcesById(sources);
   const byType = t=>facts.filter(f=>f.type===t);
   const byUse = u=>facts.filter(f=>f.intended_use===u);
-  const lines = arr=>arr.length===0?'_None logged._\n':arr.map(f=>{const src=factSourceLabel(f, mdSourcesById);return `- ${f.content}${src?` *(${src})*`:''}`;}).join('\n')+'\n';
+  const lines = arr=>arr.length===0?'_None logged._\n':arr.map(f=>{
+    const label = factSourceLabel(f, mdSourcesById);
+    const url = factSourceUrl(f, mdSourcesById);
+    const src = label ? (url && /^https?:\/\//i.test(url) ? `[${label}](${url})` : label) : null;
+    return `- ${f.content}${src?` *(${src})*`:''}`;
+  }).join('\n')+'\n';
 
   const committee = byUse('buying_committee_mapping');
   const committeeLines = lines(committee);
